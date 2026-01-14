@@ -1623,38 +1623,38 @@ From `https://github.com/graphprotocol/contracts`:
 
 ## Implementation Checklist
 
-### Phase 1: Core Types
-- [ ] Define CollectionID type (32 bytes)
-- [ ] Define V2 Receipt struct
-- [ ] Define V2 RAV struct
-- [ ] Implement JSON serialization
-- [ ] Implement SignedMessage generic wrapper
-- [ ] Add helper constructors
-- [ ] Unit tests for types
+### Phase 1: Core Types ✅ COMPLETED
+- [x] Define CollectionID type (32 bytes)
+- [x] Define V2 Receipt struct
+- [x] Define V2 RAV struct
+- [x] Implement JSON serialization
+- [x] Implement SignedMessage generic wrapper
+- [x] Add helper constructors
+- [x] Unit tests for types
 
-### Phase 2: EIP-712
-- [ ] Implement Domain struct (V2 only: "GraphTallyCollector")
-- [ ] Implement domain separator computation
-- [ ] Implement Receipt struct hash encoding
-- [ ] Implement RAV struct hash encoding
-- [ ] Implement HashTypedData function
-- [ ] Unit tests comparing against Rust implementation
+### Phase 2: EIP-712 ✅ COMPLETED
+- [x] Implement Domain struct (V2 only: "GraphTallyCollector")
+- [x] Implement domain separator computation
+- [x] Implement Receipt struct hash encoding
+- [x] Implement RAV struct hash encoding
+- [x] Implement HashTypedData function
+- [x] Unit tests comparing against Rust implementation
 
-### Phase 3: Signature Handling
-- [ ] Implement signature normalization (low-S form)
-- [ ] Implement Sign function using eth-go PrivateKey
-- [ ] Implement RecoverSigner function using eth-go Signature
-- [ ] Implement UniqueID for malleability protection
-- [ ] Unit tests for signature operations
+### Phase 3: Signature Handling ✅ COMPLETED
+- [x] Implement signature normalization (low-S form)
+- [x] Implement Sign function using eth-go PrivateKey
+- [x] Implement RecoverSigner function using eth-go Signature
+- [x] Implement UniqueID for malleability protection
+- [x] Unit tests for signature operations
 
-### Phase 4: Aggregation
-- [ ] Implement Aggregator struct
-- [ ] Implement signature uniqueness check
-- [ ] Implement signer verification
-- [ ] Implement timestamp validation
-- [ ] Implement field consistency validation
-- [ ] Implement aggregate function
-- [ ] Unit tests for all validation cases
+### Phase 4: Aggregation ✅ COMPLETED
+- [x] Implement Aggregator struct
+- [x] Implement signature uniqueness check
+- [x] Implement signer verification
+- [x] Implement timestamp validation
+- [x] Implement field consistency validation
+- [x] Implement aggregate function
+- [x] Unit tests for all validation cases
 
 ### Phase 5: Integration Tests (Testcontainers)
 - [ ] Create contract build Dockerfile (test/integration/build/)
