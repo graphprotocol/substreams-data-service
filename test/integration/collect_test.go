@@ -78,7 +78,7 @@ func TestCollectRAV(t *testing.T) {
 	recoveredSigner, err := signedRAV.RecoverSigner(domain)
 	require.NoError(t, err)
 	require.Equal(t, env.PayerAddr, recoveredSigner)
-	zlog.Debug("signature verified locally", zap.String("recovered_signer", recoveredSigner.Pretty()))
+	zlog.Debug("signature verified locally", zap.Stringer("recovered_signer", recoveredSigner))
 
 	// Call collect() from data service account
 	dataServiceCut := uint64(100000) // 10% in PPM
@@ -237,7 +237,7 @@ func callCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID ui
 	rav := signedRAV.Message
 	zlog.Debug("preparing collect() call",
 		zap.Uint64("chain_id", chainID),
-		zap.String("collector", collector.Pretty()),
+		zap.Stringer("collector", collector),
 		zap.String("payer", rav.Payer.Pretty()),
 		zap.String("service_provider", rav.ServiceProvider.Pretty()),
 		zap.String("value_aggregate", rav.ValueAggregate.String()))

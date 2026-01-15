@@ -131,11 +131,10 @@ func setupEnv() (*TestEnv, error) {
 	}
 
 	rpcURL := fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
-	zlog.Info("Geth RPC endpoint ready", zap.String("rpc_url", rpcURL))
+	zlog.Info("Anvil RPC endpoint ready", zap.String("rpc_url", rpcURL))
 
-	// Wait for RPC to be responsive and get the ACTUAL chain ID
-	// Geth dev mode assigns a random chain ID, we must use whatever it returns
-	zlog.Info("querying chain ID from Geth node")
+	// Wait for RPC to be responsive and get the chain ID
+	zlog.Info("querying chain ID from Anvil node")
 	var chainIDInt *big.Int
 	for i := 0; i < 20; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -159,7 +158,7 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("failed to get valid chain ID after retries")
 	}
 
-	// Get dev account (funded by Geth --dev)
+	// Get dev account (funded by Anvil)
 	zlog.Debug("querying dev accounts")
 	accounts, err := rpcCall[[]string](ctx, rpcURL, "eth_accounts", nil)
 	if err != nil || len(accounts) == 0 {
@@ -169,7 +168,7 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("getting dev accounts: %w", err)
 	}
 	devAccount := eth.MustNewAddress(accounts[0])
-	zlog.Info("dev account retrieved", zap.String("dev_account", devAccount.Pretty()))
+	zlog.Info("dev account retrieved", zap.Stringer("dev_account", devAccount))
 
 	// Create test keys
 	zlog.Debug("generating test keys")
@@ -181,7 +180,7 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("generating deployer key: %w", err)
 	}
 	deployerAddr := deployerKey.PublicKey().Address()
-	zlog.Debug("generated deployer key", zap.String("deployer_address", deployerAddr.Pretty()))
+	zlog.Debug("generated deployer key", zap.Stringer("deployer_address", deployerAddr))
 
 	serviceProviderKey, err := eth.NewRandomPrivateKey()
 	if err != nil {
@@ -191,7 +190,7 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("generating service provider key: %w", err)
 	}
 	serviceProviderAddr := serviceProviderKey.PublicKey().Address()
-	zlog.Debug("generated service provider key", zap.String("service_provider_address", serviceProviderAddr.Pretty()))
+	zlog.Debug("generated service provider key", zap.Stringer("service_provider_address", serviceProviderAddr))
 
 	payerKey, err := eth.NewRandomPrivateKey()
 	if err != nil {
@@ -201,7 +200,7 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("generating payer key: %w", err)
 	}
 	payerAddr := payerKey.PublicKey().Address()
-	zlog.Debug("generated payer key", zap.String("payer_address", payerAddr.Pretty()))
+	zlog.Debug("generated payer key", zap.Stringer("payer_address", payerAddr))
 
 	dataServiceKey, err := eth.NewRandomPrivateKey()
 	if err != nil {
@@ -211,7 +210,7 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("generating data service key: %w", err)
 	}
 	dataServiceAddr := dataServiceKey.PublicKey().Address()
-	zlog.Debug("generated data service key", zap.String("data_service_address", dataServiceAddr.Pretty()))
+	zlog.Debug("generated data service key", zap.Stringer("data_service_address", dataServiceAddr))
 
 	// Fund deployer from dev account (10 ETH)
 	zlog.Debug("funding deployer account")
@@ -269,7 +268,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("deploying GRT: %w", err)
 	}
-	zlog.Info("GRT token deployed", zap.String("grt_address", grtAddr.Pretty()))
+	zlog.Info("GRT token deployed", zap.Stringer("grt_address", grtAddr))
 
 	// 2. Deploy Controller
 	zlog.Debug("loading Controller artifact")
@@ -296,7 +295,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("deploying Controller: %w", err)
 	}
-	zlog.Info("Controller deployed", zap.String("controller_address", controllerAddr.Pretty()))
+	zlog.Info("Controller deployed", zap.Stringer("controller_address", controllerAddr))
 
 	// 3. Deploy Staking
 	zlog.Debug("loading Staking artifact")
@@ -315,7 +314,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("deploying Staking: %w", err)
 	}
-	zlog.Info("Staking deployed", zap.String("staking_address", stakingAddr.Pretty()))
+	zlog.Info("Staking deployed", zap.Stringer("staking_address", stakingAddr))
 
 	// 4. Deploy PaymentsEscrow
 	zlog.Debug("loading PaymentsEscrow artifact")
@@ -342,7 +341,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("deploying PaymentsEscrow: %w", err)
 	}
-	zlog.Info("PaymentsEscrow deployed", zap.String("escrow_address", escrowAddr.Pretty()))
+	zlog.Info("PaymentsEscrow deployed", zap.Stringer("escrow_address", escrowAddr))
 
 	// 5. Register contracts in Controller
 	zlog.Debug("registering contracts in Controller")
@@ -393,7 +392,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("deploying Collector: %w", err)
 	}
-	zlog.Info("GraphTallyCollectorFull deployed", zap.String("collector_address", collectorAddr.Pretty()))
+	zlog.Info("GraphTallyCollectorFull deployed", zap.Stringer("collector_address", collectorAddr))
 
 	fmt.Printf("Test environment ready:\n")
 	fmt.Printf("  RPC URL: %s\n", rpcURL)
@@ -519,12 +518,12 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 	}
 
 	deployerAddr := key.PublicKey().Address()
-	zlog.Debug("deploying contract from address", zap.String("deployer", deployerAddr.Pretty()), zap.Uint64("chain_id", chainID))
+	zlog.Debug("deploying contract from address", zap.Stringer("deployer", deployerAddr), zap.Uint64("chain_id", chainID))
 
 	// Get nonce
 	nonceHex, err := rpcCall[string](ctx, rpcURL, "eth_getTransactionCount", []interface{}{deployerAddr.Pretty(), "latest"})
 	if err != nil {
-		zlog.Error("failed to get nonce for contract deployment", zap.Error(err), zap.String("deployer", deployerAddr.Pretty()))
+		zlog.Error("failed to get nonce for contract deployment", zap.Error(err), zap.Stringer("deployer", deployerAddr))
 		return eth.Address{}, fmt.Errorf("getting nonce: %w", err)
 	}
 	nonce, _ := new(big.Int).SetString(nonceHex[2:], 16)
@@ -592,7 +591,7 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 	}
 
 	contractAddr := eth.MustNewAddress(contractAddrStr)
-	zlog.Debug("contract deployed successfully", zap.String("contract_address", contractAddr.Pretty()), zap.String("tx_hash", txHash))
+	zlog.Debug("contract deployed successfully", zap.Stringer("contract_address", contractAddr), zap.String("tx_hash", txHash))
 	return contractAddr, nil
 }
 
@@ -989,12 +988,12 @@ func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, ch
 	if to != nil {
 		toStr = to.Pretty()
 	}
-	zlog.Debug("sending transaction", zap.String("from", from.Pretty()), zap.String("to", toStr), zap.Uint64("chain_id", chainID))
+	zlog.Debug("sending transaction", zap.Stringer("from", from), zap.String("to", toStr), zap.Uint64("chain_id", chainID))
 
 	// Get nonce
 	nonceHex, err := rpcCall[string](ctx, rpcURL, "eth_getTransactionCount", []interface{}{from.Pretty(), "latest"})
 	if err != nil {
-		zlog.Error("failed to get nonce", zap.Error(err), zap.String("from", from.Pretty()))
+		zlog.Error("failed to get nonce", zap.Error(err), zap.Stringer("from", from))
 		return fmt.Errorf("getting nonce: %w", err)
 	}
 	nonce, _ := new(big.Int).SetString(nonceHex[2:], 16)

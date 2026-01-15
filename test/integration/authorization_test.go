@@ -40,7 +40,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	signerKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
-	zlog.Debug("signer key created", zap.String("signer_address", signerAddr.Pretty()))
+	zlog.Debug("signer key created", zap.Stringer("signer_address", signerAddr))
 
 	// Verify signer is not authorized initially
 	zlog.Debug("checking initial authorization status")
@@ -50,7 +50,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	zlog.Debug("verified signer not initially authorized")
 
 	// Authorize the signer (payer authorizes signer)
-	zlog.Info("authorizing signer", zap.String("payer", env.PayerAddr.Pretty()), zap.String("signer", signerAddr.Pretty()), zap.Uint64("chain_id", env.ChainID))
+	zlog.Info("authorizing signer", zap.Stringer("payer", env.PayerAddr), zap.Stringer("signer", signerAddr), zap.Uint64("chain_id", env.ChainID))
 	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerAddr, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 	zlog.Info("signer authorized successfully")
@@ -89,7 +89,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	recoveredSigner, err := signedRAV.RecoverSigner(domain)
 	require.NoError(t, err)
 	require.Equal(t, signerAddr, recoveredSigner, "Should recover signer address, not payer")
-	zlog.Debug("verified signature recovery", zap.String("recovered", recoveredSigner.Pretty()), zap.String("expected", signerAddr.Pretty()))
+	zlog.Debug("verified signature recovery", zap.Stringer("recovered", recoveredSigner), zap.Stringer("expected", signerAddr))
 
 	// Call collect() - should succeed because signer is authorized
 	dataServiceCut := uint64(100000) // 10% in PPM
@@ -130,7 +130,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	unauthorizedKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	unauthorizedAddr := unauthorizedKey.PublicKey().Address()
-	zlog.Debug("unauthorized signer created", zap.String("unauthorized_address", unauthorizedAddr.Pretty()))
+	zlog.Debug("unauthorized signer created", zap.Stringer("unauthorized_address", unauthorizedAddr))
 
 	// Verify signer is not authorized
 	zlog.Debug("verifying signer is not authorized")
@@ -207,7 +207,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 	require.True(t, isAuth)
 
 	// Revoke the signer (thawing period is 0 in our setup, so can revoke immediately)
-	zlog.Info("revoking signer", zap.String("signer", signerAddr.Pretty()), zap.Uint64("chain_id", env.ChainID))
+	zlog.Info("revoking signer", zap.Stringer("signer", signerAddr), zap.Uint64("chain_id", env.ChainID))
 	err = callRevokeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerAddr, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to revoke signer")
 	zlog.Info("signer revoked successfully")
