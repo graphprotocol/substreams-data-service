@@ -1,30 +1,31 @@
-FROM node:20-alpine
+FROM ghcr.io/foundry-rs/foundry:latest
 
-WORKDIR /app
+# Run as root to avoid permission issues
+USER root
 
-# Install dependencies
-RUN apk add --no-cache git curl bash jq
+# Create a build directory
+RUN mkdir -p /build && chmod 777 /build
+WORKDIR /build
 
-# Install foundry
-RUN curl -L https://foundry.paradigm.xyz | bash && \
-    /root/.foundry/bin/foundryup
+# Initialize foundry project first (in empty directory)
+RUN forge init --no-git .
 
-ENV PATH="/root/.foundry/bin:${PATH}"
+# Install OpenZeppelin contracts dependency
+RUN forge install OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
 
-# Clone Graph Protocol contracts (Horizon)
-RUN git clone --depth 1 https://github.com/graphprotocol/contracts.git /app/contracts
+# Create remappings for OpenZeppelin
+RUN echo '@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/' > remappings.txt
 
-WORKDIR /app/contracts
-
-# Install npm dependencies and build
-RUN npm install
-RUN forge build
+# Now copy our test contracts (will overwrite the default src files)
+COPY contracts/GraphTallyVerifier.sol ./src/
+COPY contracts/IntegrationTestContracts.sol ./src/
+COPY contracts/GraphTallyCollectorFull.sol ./src/
 
 # Copy build script
-COPY build.sh /app/build.sh
-RUN chmod +x /app/build.sh
+COPY build.sh ./build.sh
+RUN chmod +x ./build.sh
 
 # Output directory will be mounted
 VOLUME /output
 
-ENTRYPOINT ["/app/build.sh"]
+ENTRYPOINT ["./build.sh"]
