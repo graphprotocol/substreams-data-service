@@ -36,16 +36,18 @@ func TestCollectRAV(t *testing.T) {
 	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
-	// Deposit to escrow
+	// Deposit to escrow (using 3-level mapping: payer -> collector -> receiver)
 	zlog.Debug("depositing to escrow", zap.String("amount", tokensToDeposit.String()))
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.PayerAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Setup: Set provision for service provider in staking contract
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
+	maxVerifierCut := uint32(0)
+	thawingPeriod := uint64(0)
 	zlog.Debug("setting provision", zap.String("service_provider", env.ServiceProviderAddr.Pretty()), zap.String("amount", provisionTokens.String()))
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Create domain
@@ -110,12 +112,14 @@ func TestCollectRAVIncremental(t *testing.T) {
 	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.PayerAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, env.ABIs.Staking)
+	maxVerifierCut := uint32(0)
+	thawingPeriod := uint64(0)
+	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
@@ -201,14 +205,14 @@ func callApproveGRT(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID
 	return sendTransaction(ctx, rpcURL, key, chainID, &token, big.NewInt(0), data)
 }
 
-// callDepositEscrow calls MockPaymentsEscrow.deposit(address sender, uint256 amount)
-func callDepositEscrow(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, escrow eth.Address, sender eth.Address, amount *big.Int, abi *eth.ABI) error {
+// callDepositEscrow calls MockPaymentsEscrow.deposit(address collector, address receiver, uint256 amount)
+func callDepositEscrow(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, escrow eth.Address, collector eth.Address, receiver eth.Address, amount *big.Int, abi *eth.ABI) error {
 	depositFn := abi.FindFunctionByName("deposit")
 	if depositFn == nil {
 		return fmt.Errorf("deposit function not found in ABI")
 	}
 
-	data, err := depositFn.NewCall(sender, amount).Encode()
+	data, err := depositFn.NewCall(collector, receiver, amount).Encode()
 	if err != nil {
 		return fmt.Errorf("encoding deposit call: %w", err)
 	}
@@ -216,14 +220,14 @@ func callDepositEscrow(ctx testContext, rpcURL string, key *eth.PrivateKey, chai
 	return sendTransaction(ctx, rpcURL, key, chainID, &escrow, big.NewInt(0), data)
 }
 
-// callSetProvision calls MockStaking.setProvision(address serviceProvider, address dataService, uint256 tokens)
-func callSetProvision(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, staking eth.Address, serviceProvider eth.Address, dataService eth.Address, tokens *big.Int, abi *eth.ABI) error {
+// callSetProvision calls MockStaking.setProvision(address serviceProvider, address dataService, uint256 tokens, uint32 maxVerifierCut, uint64 thawingPeriod)
+func callSetProvision(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, staking eth.Address, serviceProvider eth.Address, dataService eth.Address, tokens *big.Int, maxVerifierCut uint32, thawingPeriod uint64, abi *eth.ABI) error {
 	setProvisionFn := abi.FindFunctionByName("setProvision")
 	if setProvisionFn == nil {
 		return fmt.Errorf("setProvision function not found in ABI")
 	}
 
-	data, err := setProvisionFn.NewCall(serviceProvider, dataService, tokens).Encode()
+	data, err := setProvisionFn.NewCall(serviceProvider, dataService, tokens, maxVerifierCut, thawingPeriod).Encode()
 	if err != nil {
 		return fmt.Errorf("encoding setProvision call: %w", err)
 	}

@@ -17,6 +17,7 @@ contracts=(
     "MockPaymentsEscrow"
     "MockGraphPayments"
     "GraphTallyCollectorFull"
+    "SubstreamsDataService"
 )
 
 # Extract artifacts
@@ -30,6 +31,8 @@ for contract in "${contracts[@]}"; do
         ARTIFACT_PATH="out/IntegrationTestContracts.sol/${contract}.json"
     elif [ -f "out/GraphTallyCollectorFull.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/GraphTallyCollectorFull.sol/${contract}.json"
+    elif [ -f "out/SubstreamsDataService.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/SubstreamsDataService.sol/${contract}.json"
     fi
 
     if [ -z "$ARTIFACT_PATH" ]; then

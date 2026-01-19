@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo docker ps:*)",
+      "Bash(sudo -S docker ps:*)",
+      "Bash(env)",
+      "Bash(docker inspect --help:*)",
+      "Bash(docker info:*)",
+      "Bash(docker version:*)",
+      "Bash(sudo docker version:*)",
+      "Bash(go build:*)"
+    ]
+  }
+}
