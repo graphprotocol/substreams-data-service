@@ -135,20 +135,19 @@ contract MockStaking {
      * @dev Called by ProvisionManager._getProvision
      */
     function getProvision(address serviceProvider, address dataService)
-        external view returns (IHorizonStaking.Provision memory) {
+        external view returns (IHorizonStaking.Provision memory provision) {
         ProvisionData storage p = _provisions[serviceProvider][dataService];
-        return IHorizonStaking.Provision({
-            tokens: p.tokens,
-            tokensThawing: p.tokensThawing,
-            sharesThawing: p.sharesThawing,
-            maxVerifierCut: p.maxVerifierCut,
-            thawingPeriod: p.thawingPeriod,
-            createdAt: p.createdAt,
-            maxVerifierCutPending: p.maxVerifierCutPending,
-            thawingPeriodPending: p.thawingPeriodPending,
-            lastParametersStagedAt: p.lastParametersStagedAt,
-            thawingNonce: p.thawingNonce
-        });
+        provision.tokens = p.tokens;
+        provision.tokensThawing = p.tokensThawing;
+        provision.sharesThawing = p.sharesThawing;
+        provision.maxVerifierCut = p.maxVerifierCut;
+        provision.thawingPeriod = p.thawingPeriod;
+        provision.createdAt = p.createdAt;
+        provision.maxVerifierCutPending = p.maxVerifierCutPending;
+        provision.thawingPeriodPending = p.thawingPeriodPending;
+        provision.lastParametersStagedAt = p.lastParametersStagedAt;
+        provision.thawingNonce = p.thawingNonce;
+        return provision;
     }
 
     /**
@@ -288,5 +287,15 @@ contract MockGraphPayments {
     ) external returns (uint256) {
         // Forward to collector - not implemented in this mock
         return 0;
+    }
+}
+
+/**
+ * @title MockEpochManager
+ * @notice Minimal mock for testing - just needs to exist for GraphDirectory
+ */
+contract MockEpochManager {
+    function currentEpoch() external pure returns (uint256) {
+        return 1;
     }
 }

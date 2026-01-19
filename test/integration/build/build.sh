@@ -5,6 +5,23 @@ echo "Building contract artifacts..."
 
 cd /build
 
+# Create remappings.txt with horizon-contracts paths (mounted at runtime)
+cat > remappings.txt << 'EOF'
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+@graphprotocol/interfaces/=/horizon-contracts/packages/interfaces/
+@graphprotocol/horizon/=/horizon-contracts/packages/horizon/
+@graphprotocol/contracts/=/horizon-contracts/packages/contracts/
+EOF
+
+echo "Verifying horizon-contracts mount..."
+if [ ! -d "/horizon-contracts/packages/interfaces" ]; then
+    echo "ERROR: horizon-contracts not properly mounted at /horizon-contracts"
+    ls -la /horizon-contracts/ || echo "Mount point does not exist"
+    exit 1
+fi
+echo "horizon-contracts mount verified successfully"
+
 # Build contracts
 forge build
 
@@ -16,6 +33,7 @@ contracts=(
     "MockStaking"
     "MockPaymentsEscrow"
     "MockGraphPayments"
+    "MockEpochManager"
     "GraphTallyCollectorFull"
     "SubstreamsDataService"
 )
@@ -33,6 +51,8 @@ for contract in "${contracts[@]}"; do
         ARTIFACT_PATH="out/GraphTallyCollectorFull.sol/${contract}.json"
     elif [ -f "out/SubstreamsDataService.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/SubstreamsDataService.sol/${contract}.json"
+    elif [ -f "out/MockEpochManager.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/MockEpochManager.sol/${contract}.json"
     fi
 
     if [ -z "$ARTIFACT_PATH" ]; then

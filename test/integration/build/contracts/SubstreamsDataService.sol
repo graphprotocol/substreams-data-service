@@ -5,20 +5,16 @@ import { IGraphPayments } from "@graphprotocol/interfaces/contracts/horizon/IGra
 import { IGraphTallyCollector } from "@graphprotocol/interfaces/contracts/horizon/IGraphTallyCollector.sol";
 import { IDataService } from "@graphprotocol/interfaces/contracts/data-service/IDataService.sol";
 
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { DataService } from "@graphprotocol/horizon/contracts/data-service/DataService.sol";
 
 /**
  * @title SubstreamsDataService
  * @notice A minimal data service contract for Substreams indexing and querying
  * @dev Implements the strict minimum required for a DataService to work with GraphTallyCollector
+ * Note: DataService already extends IDataService and all necessary upgradeable contracts
  */
 contract SubstreamsDataService is
-    Initializable,
-    OwnableUpgradeable,
-    DataService,
-    IDataService
+    DataService
 {
     /// @notice GraphTallyCollector address for payment collection
     IGraphTallyCollector public immutable GRAPH_TALLY_COLLECTOR;
@@ -64,15 +60,12 @@ contract SubstreamsDataService is
 
     /**
      * @notice Initialize the contract
-     * @param owner The owner address
      * @param minimumProvisionTokens Minimum tokens required for provision
      */
-    function initialize(
-        address owner,
+    function setProvisionTokensRange(
         uint256 minimumProvisionTokens
-    ) external initializer {
-        __Ownable_init(owner);
-        __DataService_init();
+    ) external {
+        // Set provision tokens range (for testing, we allow calling this directly)
         _setProvisionTokensRange(minimumProvisionTokens, type(uint256).max);
     }
 

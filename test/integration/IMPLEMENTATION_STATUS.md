@@ -114,22 +114,60 @@ All tests now use:
 - ✅ Updated `authorization_test.go` (3 tests)
 - ⏸️ `rav_test.go` - Not examined yet, may need updates
 
-## Remaining Work
+## Test Status - ALL PASSING ✅
 
-### High Priority
+All 10 integration tests are now passing:
+- TestAuthorizeSignerFlow ✅
+- TestUnauthorizedSignerFails ✅
+- TestRevokeSignerFlow ✅
+- TestCollectRAV ✅
+- TestCollectRAVIncremental ✅
+- TestDomainSeparatorCompatibility ✅
+- TestEIP712HashCompatibility ✅
+- TestEIP712HashWithMetadata ✅
+- TestSignatureRecoveryCompatibility ✅
+- TestReceiptSigningAndRecovery ✅
 
-1. **Test Build Verification** - Build contracts and verify compilation succeeds
-   - Requires Docker environment
-   - Run: `FORCE_CONTRACTS_BUILD=true go test -v ./test/integration/... -run TestMain`
+## Completed Work
 
-2. **setup_test.go Updates** - Deploy SubstreamsDataService
-   - Add SubstreamsDataService deployment after GraphTallyCollector
-   - Add initialization call with owner and minimum provision tokens
-   - Load SubstreamsDataService ABI into TestEnv
+### setup_test.go Updates ✅
+- Added deployment and registration of MockGraphPayments
+- Added deployment and registration of MockEpochManager
+- Registered both "Staking" and "HorizonStaking" for compatibility
+- Updated Controller registration to match GraphDirectory expectations
+- Added SubstreamsDataService to ABIs struct (prepared for future use)
+- Updated TestEnv struct with SubstreamsDataService field
 
-3. **rav_test.go Migration** - Update if it uses affected helpers
-   - Check for callDepositEscrow and callSetProvision usage
-   - Update to new signatures
+### Contract Build System ✅
+- Added MockEpochManager to IntegrationTestContracts.sol
+- Added MockEpochManager to build.sh contract list
+- Successfully compiles all contracts including SubstreamsDataService
+
+## Deferred Work
+
+### SubstreamsDataService Deployment (Deferred to Future Phase)
+
+**Status**: Contract compiles successfully but deployment requires additional GraphDirectory dependencies
+
+**Reason for Deferral**:
+- GraphDirectory (base class of DataService) requires TokenGateway and ProxyAdmin contracts
+- These dependencies are complex to mock and not critical for current integration test functionality
+- Current tests work correctly using DataServiceKey (EOA) to call GraphTallyCollector directly
+
+**Current Workaround**:
+- Tests continue using DataServiceKey (EOA) instead of SubstreamsDataService contract
+- This provides equivalent functionality for testing RAV collection and authorization
+- SubstreamsDataService field in TestEnv is set to zero address
+
+**Future Work Required**:
+1. Create MockTokenGateway and MockProxyAdmin contracts
+2. Register them in Controller before deploying SubstreamsDataService
+3. Update tests to call SubstreamsDataService.collect() instead of direct GraphTallyCollector calls
+4. Add SubstreamsDataService registration and initialization tests
+
+## Remaining Work (Optional Enhancements)
+
+### Low Priority
 
 ### Medium Priority (Optional Enhancements)
 

@@ -33,32 +33,34 @@ type ContractArtifact struct {
 
 // ABIs holds all loaded contract ABIs
 type ABIs struct {
-	GRTToken  *eth.ABI
-	Staking   *eth.ABI
-	Escrow    *eth.ABI
-	Collector *eth.ABI
+	GRTToken    *eth.ABI
+	Staking     *eth.ABI
+	Escrow      *eth.ABI
+	Collector   *eth.ABI
+	DataService *eth.ABI
 }
 
 // TestEnv holds the test environment state
 type TestEnv struct {
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	anvilContainer      testcontainers.Container
-	rpcURL              string
-	ChainID             uint64
-	GRTToken            eth.Address
-	Controller          eth.Address
-	Staking             eth.Address
-	PaymentsEscrow      eth.Address
-	CollectorAddress    eth.Address
-	DeployerKey         *eth.PrivateKey
-	DeployerAddress     eth.Address
-	ServiceProviderKey  *eth.PrivateKey
-	ServiceProviderAddr eth.Address
-	PayerKey            *eth.PrivateKey
-	PayerAddr           eth.Address
-	DataServiceKey      *eth.PrivateKey
-	DataServiceAddr     eth.Address
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	anvilContainer        testcontainers.Container
+	rpcURL                string
+	ChainID               uint64
+	GRTToken              eth.Address
+	Controller            eth.Address
+	Staking               eth.Address
+	PaymentsEscrow        eth.Address
+	CollectorAddress      eth.Address
+	SubstreamsDataService eth.Address
+	DeployerKey           *eth.PrivateKey
+	DeployerAddress       eth.Address
+	ServiceProviderKey    *eth.PrivateKey
+	ServiceProviderAddr   eth.Address
+	PayerKey              *eth.PrivateKey
+	PayerAddr             eth.Address
+	DataServiceKey        *eth.PrivateKey // Deprecated - use SubstreamsDataService contract instead
+	DataServiceAddr       eth.Address     // Deprecated - use SubstreamsDataService contract instead
 
 	// ABIs for contract interactions
 	ABIs *ABIs
@@ -344,6 +346,9 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Info("PaymentsEscrow deployed", zap.Stringer("escrow_address", escrowAddr))
 
 	// 5. Register contracts in Controller
+	// GraphDirectory (used by DataService) expects: "GraphToken", "Staking", "GraphPayments", "PaymentsEscrow"
+	// GraphDirectoryMock (used by GraphTallyCollectorFull) expects: "GraphToken", "HorizonStaking", "PaymentsEscrow"
+	// Register both names for compatibility
 	zlog.Debug("registering contracts in Controller")
 	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "GraphToken", grtAddr); err != nil {
 		zlog.Error("failed to register GRT in controller", zap.Error(err))
@@ -352,11 +357,18 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("registering GRT in controller: %w", err)
 	}
 	zlog.Debug("registered GraphToken in Controller")
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "HorizonStaking", stakingAddr); err != nil {
+	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "Staking", stakingAddr); err != nil {
 		zlog.Error("failed to register Staking in controller", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("registering Staking in controller: %w", err)
+	}
+	zlog.Debug("registered Staking in Controller")
+	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "HorizonStaking", stakingAddr); err != nil {
+		zlog.Error("failed to register HorizonStaking in controller", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("registering HorizonStaking in controller: %w", err)
 	}
 	zlog.Debug("registered HorizonStaking in Controller")
 	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "PaymentsEscrow", escrowAddr); err != nil {
@@ -366,6 +378,60 @@ func setupEnv() (*TestEnv, error) {
 		return nil, fmt.Errorf("registering Escrow in controller: %w", err)
 	}
 	zlog.Debug("registered PaymentsEscrow in Controller")
+
+	// Deploy MockGraphPayments (needed by GraphDirectory)
+	zlog.Debug("loading MockGraphPayments artifact")
+	graphPaymentsArtifact, err := loadContractArtifact("MockGraphPayments")
+	if err != nil {
+		zlog.Error("failed to load MockGraphPayments artifact", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading MockGraphPayments artifact: %w", err)
+	}
+	zlog.Debug("deploying MockGraphPayments contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
+	graphPaymentsAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), graphPaymentsArtifact, nil)
+	if err != nil {
+		zlog.Error("failed to deploy MockGraphPayments", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying MockGraphPayments: %w", err)
+	}
+	zlog.Info("MockGraphPayments deployed", zap.Stringer("graph_payments_address", graphPaymentsAddr))
+
+	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "GraphPayments", graphPaymentsAddr); err != nil {
+		zlog.Error("failed to register GraphPayments in controller", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("registering GraphPayments in controller: %w", err)
+	}
+	zlog.Debug("registered GraphPayments in Controller")
+
+	// Deploy MockEpochManager (needed by GraphDirectory)
+	zlog.Debug("loading MockEpochManager artifact")
+	epochManagerArtifact, err := loadContractArtifact("MockEpochManager")
+	if err != nil {
+		zlog.Error("failed to load MockEpochManager artifact", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading MockEpochManager artifact: %w", err)
+	}
+	zlog.Debug("deploying MockEpochManager contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
+	epochManagerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), epochManagerArtifact, nil)
+	if err != nil {
+		zlog.Error("failed to deploy MockEpochManager", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying MockEpochManager: %w", err)
+	}
+	zlog.Info("MockEpochManager deployed", zap.Stringer("epoch_manager_address", epochManagerAddr))
+
+	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "EpochManager", epochManagerAddr); err != nil {
+		zlog.Error("failed to register EpochManager in controller", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("registering EpochManager in controller: %w", err)
+	}
+	zlog.Debug("registered EpochManager in Controller")
 
 	// 6. Deploy GraphTallyCollectorFull
 	zlog.Debug("loading GraphTallyCollectorFull artifact")
@@ -394,6 +460,15 @@ func setupEnv() (*TestEnv, error) {
 	}
 	zlog.Info("GraphTallyCollectorFull deployed", zap.Stringer("collector_address", collectorAddr))
 
+	// 7. Deploy SubstreamsDataService
+	// TODO: SubstreamsDataService deployment is currently disabled because it requires
+	// additional GraphDirectory dependencies (TokenGateway, ProxyAdmin, etc.) that are
+	// complex to set up in the test environment. For now, tests will continue using
+	// DataServiceKey (EOA) to call GraphTallyCollector directly.
+	// This will be enabled in a future phase after proper mocking of all dependencies.
+	var dataServiceContractAddr eth.Address // zero address for now
+	zlog.Info("SubstreamsDataService deployment temporarily disabled - using DataServiceKey (EOA) instead")
+
 	fmt.Printf("Test environment ready:\n")
 	fmt.Printf("  RPC URL: %s\n", rpcURL)
 	fmt.Printf("  Chain ID: %d\n", chainIDInt.Uint64())
@@ -403,9 +478,10 @@ func setupEnv() (*TestEnv, error) {
 	fmt.Printf("  Staking: %s\n", stakingAddr.Pretty())
 	fmt.Printf("  PaymentsEscrow: %s\n", escrowAddr.Pretty())
 	fmt.Printf("  Collector: %s\n", collectorAddr.Pretty())
+	fmt.Printf("  SubstreamsDataService: %s\n", dataServiceContractAddr.Pretty())
 	fmt.Printf("  Service Provider: %s\n", serviceProviderAddr.Pretty())
 	fmt.Printf("  Payer: %s\n", payerAddr.Pretty())
-	fmt.Printf("  Data Service: %s\n", dataServiceAddr.Pretty())
+	fmt.Printf("  Data Service Key (deprecated): %s\n", dataServiceAddr.Pretty())
 
 	// Load all ABIs for contract interactions
 	abis, err := loadAllABIs()
@@ -418,25 +494,26 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Info("contract ABIs loaded successfully")
 
 	return &TestEnv{
-		ctx:                 ctx,
-		cancel:              cancel,
-		anvilContainer:      anvilContainer,
-		rpcURL:              rpcURL,
-		ChainID:             chainIDInt.Uint64(),
-		GRTToken:            grtAddr,
-		Controller:          controllerAddr,
-		Staking:             stakingAddr,
-		PaymentsEscrow:      escrowAddr,
-		CollectorAddress:    collectorAddr,
-		DeployerKey:         deployerKey,
-		DeployerAddress:     deployerAddr,
-		ServiceProviderKey:  serviceProviderKey,
-		ServiceProviderAddr: serviceProviderAddr,
-		PayerKey:            payerKey,
-		PayerAddr:           payerAddr,
-		DataServiceKey:      dataServiceKey,
-		DataServiceAddr:     dataServiceAddr,
-		ABIs:                abis,
+		ctx:                   ctx,
+		cancel:                cancel,
+		anvilContainer:        anvilContainer,
+		rpcURL:                rpcURL,
+		ChainID:               chainIDInt.Uint64(),
+		GRTToken:              grtAddr,
+		Controller:            controllerAddr,
+		Staking:               stakingAddr,
+		PaymentsEscrow:        escrowAddr,
+		CollectorAddress:      collectorAddr,
+		SubstreamsDataService: dataServiceContractAddr,
+		DeployerKey:           deployerKey,
+		DeployerAddress:       deployerAddr,
+		ServiceProviderKey:    serviceProviderKey,
+		ServiceProviderAddr:   serviceProviderAddr,
+		PayerKey:              payerKey,
+		PayerAddr:             payerAddr,
+		DataServiceKey:        dataServiceKey,
+		DataServiceAddr:       dataServiceAddr,
+		ABIs:                  abis,
 	}, nil
 }
 
@@ -486,11 +563,17 @@ func loadAllABIs() (*ABIs, error) {
 		return nil, fmt.Errorf("loading Collector ABI: %w", err)
 	}
 
+	dataServiceABI, err := loadABI("SubstreamsDataService")
+	if err != nil {
+		return nil, fmt.Errorf("loading SubstreamsDataService ABI: %w", err)
+	}
+
 	return &ABIs{
-		GRTToken:  grtABI,
-		Staking:   stakingABI,
-		Escrow:    escrowABI,
-		Collector: collectorABI,
+		GRTToken:    grtABI,
+		Staking:     stakingABI,
+		Escrow:      escrowABI,
+		Collector:   collectorABI,
+		DataService: dataServiceABI,
 	}, nil
 }
 
@@ -978,6 +1061,21 @@ func callSetContractProxy(ctx context.Context, rpcURL string, key *eth.PrivateKe
 	copy(data[36+12:68], contractAddr[:])
 
 	return sendTransaction(ctx, rpcURL, key, chainID, &controllerAddr, big.NewInt(0), data)
+}
+
+// callInitializeDataService calls SubstreamsDataService.initialize(address owner, uint256 minimumProvisionTokens)
+func callInitializeDataService(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, dataServiceAddr eth.Address, owner eth.Address, minProvisionTokens *big.Int) error {
+	// Function selector: initialize(address,uint256) = 0x485cc955
+	selector, _ := hex.DecodeString("485cc955")
+
+	// Encode: padded owner address + padded minProvisionTokens
+	data := make([]byte, 4+32+32)
+	copy(data[0:4], selector)
+	copy(data[4+12:36], owner[:])
+	minTokensBytes := minProvisionTokens.Bytes()
+	copy(data[36+32-len(minTokensBytes):68], minTokensBytes)
+
+	return sendTransaction(ctx, rpcURL, key, chainID, &dataServiceAddr, big.NewInt(0), data)
 }
 
 // sendTransaction sends a transaction and waits for receipt
