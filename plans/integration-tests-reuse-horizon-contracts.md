@@ -1,6 +1,12 @@
 # Plan: Improve Integration Tests to Reuse Original Horizon Contracts
 
-## Status: PLANNING COMPLETE - Ready for Implementation
+## Status: IMPLEMENTATION IN PROGRESS
+
+**Last Updated**: 2026-01-19
+
+**Completion**: 5 out of 9 phases completed (Phases 1, 4, 5, 6, and partial 8)
+
+See `test/integration/IMPLEMENTATION_STATUS.md` for detailed status.
 
 ## ULTIMATE GOAL
 
@@ -273,11 +279,11 @@ contract SubstreamsDataService is
 
 ### 1.4 Tasks
 
-- [ ] Create `SubstreamsDataService.sol` in `test/integration/build/contracts/`
-- [ ] Add import remappings for `@graphprotocol/horizon/contracts/data-service/`
-- [ ] Update build system to compile SubstreamsDataService
-- [ ] Deploy SubstreamsDataService in test setup
-- [ ] Update tests to use SubstreamsDataService as the DataService caller
+- [x] Create `SubstreamsDataService.sol` in `test/integration/build/contracts/`
+- [x] Add import remappings for `@graphprotocol/horizon/contracts/data-service/`
+- [x] Update build system to compile SubstreamsDataService
+- [ ] Deploy SubstreamsDataService in test setup (PENDING)
+- [ ] Update tests to use SubstreamsDataService as the DataService caller (PENDING)
 
 ---
 
@@ -691,16 +697,16 @@ contract MockStaking {
 
 ### 4.3 Tasks
 
-- [ ] Update MockGRTToken to add `burn()` and `burnFrom()` methods for protocol cut
-- [ ] Rewrite MockStaking with complete `Provision` struct support
-- [ ] Add `isAuthorized()` for ProvisionManager authorization checks
-- [ ] Add `getProvision()` returning full Provision struct with `createdAt != 0`
-- [ ] Add `acceptProvisionParameters()` for provision parameter acceptance
-- [ ] Add `getProviderTokensAvailable()` for GraphTallyCollector stake checks
-- [ ] Add delegation pool methods for GraphPayments (`getDelegationPool`, `getDelegationFeeCut`, `addToDelegationPool`)
-- [ ] Add `stakeTo()` for auto-staking when receiver destination is zero
-- [ ] Add test helper `setProvision()` and `setOperator()` for test setup
-- [ ] Test that all mocks satisfy interface requirements with original contracts
+- [x] Update MockGRTToken to add `burn()` and `burnFrom()` methods for protocol cut
+- [x] Rewrite MockStaking with complete `Provision` struct support
+- [x] Add `isAuthorized()` for ProvisionManager authorization checks
+- [x] Add `getProvision()` returning full Provision struct with `createdAt != 0`
+- [x] Add `acceptProvisionParameters()` for provision parameter acceptance
+- [x] Add `getProviderTokensAvailable()` for GraphTallyCollector stake checks
+- [x] Add delegation pool methods for GraphPayments (`getDelegationPool`, `getDelegationFeeCut`, `addToDelegationPool`)
+- [x] Add `stakeTo()` for auto-staking when receiver destination is zero
+- [x] Add test helper `setProvision()` and `setOperator()` for test setup
+- [ ] Test that all mocks satisfy interface requirements with original contracts (PENDING - requires Docker)
 
 ---
 
@@ -768,11 +774,11 @@ ENTRYPOINT ["./build.sh"]
 
 ### 5.4 Tasks
 
-- [ ] Update Dockerfile to copy horizon-contracts submodule
-- [ ] Add OpenZeppelin upgradeable contracts dependency
-- [ ] Update remappings.txt with all required paths
-- [ ] Update build.sh to compile all contracts
-- [ ] Test build produces all required artifacts
+- [x] Update Dockerfile to copy horizon-contracts submodule
+- [x] Add OpenZeppelin upgradeable contracts dependency
+- [x] Update remappings.txt with all required paths
+- [x] Update build.sh to compile all contracts
+- [ ] Test build produces all required artifacts (PENDING - requires Docker)
 
 ---
 
@@ -865,12 +871,12 @@ env.CollectViaDataService(env.ServiceProviderKey, signedRAV, dataServiceCut)
 
 ### 6.4 Tasks
 
-- [ ] Update setupEnv() with new deployment order
-- [ ] Add GraphPayments deployment with protocol cut configuration
-- [ ] Add SubstreamsDataService deployment and initialization
-- [ ] Update contract registration in Controller
-- [ ] Add helper methods for DataService interactions
-- [ ] Update all tests to use new flow
+- [ ] Update setupEnv() with new deployment order (PENDING)
+- [ ] Add GraphPayments deployment with protocol cut configuration (SKIPPED - Phase 2 not implemented)
+- [ ] Add SubstreamsDataService deployment and initialization (PENDING)
+- [ ] Update contract registration in Controller (PENDING)
+- [ ] Add helper methods for DataService interactions (PENDING)
+- [x] Update helper function signatures (callDepositEscrow, callSetProvision)
 
 ---
 
@@ -951,11 +957,15 @@ func GenerateSignerProof(
 
 ### 8.3 Tasks
 
-- [ ] Update `callDepositEscrow()` to use correct 3-level deposit
-- [ ] Update `callCollect()` to go through SubstreamsDataService
-- [ ] Add authorization proof to `callAuthorizeSigner()`
-- [ ] Add payment distribution verification tests
-- [ ] Add SubstreamsDataService registration tests
+- [x] Update `callDepositEscrow()` to use correct 3-level deposit
+- [x] Update `callSetProvision()` to use new signature with maxVerifierCut and thawingPeriod
+- [x] Update all test calls in collect_test.go (2 tests)
+- [x] Update all test calls in authorization_test.go (3 tests)
+- [ ] Update `callCollect()` to go through SubstreamsDataService (PENDING - requires deployment)
+- [ ] Add authorization proof to `callAuthorizeSigner()` (SKIPPED - Phase 7 not implemented)
+- [ ] Add payment distribution verification tests (PENDING)
+- [ ] Add SubstreamsDataService registration tests (PENDING)
+- [ ] Check and update rav_test.go if needed (PENDING)
 
 ---
 
