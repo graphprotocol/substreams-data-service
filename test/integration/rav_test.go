@@ -161,13 +161,6 @@ func TestEIP712HashWithMetadata(t *testing.T) {
 }
 
 func TestSignatureRecoveryCompatibility(t *testing.T) {
-	// FIXME: This test is temporarily skipped because recoverRAVSigner() reverts
-	// even though the encoding appears correct. The same SignedRAV encoding works
-	// in collect() which internally verifies the signature. This might be an issue
-	// with the original horizon-contracts GraphTallyCollector.recoverRAVSigner()
-	// implementation or a subtle ABI encoding difference that needs investigation.
-	t.Skip("recoverRAVSigner reverts - needs investigation in horizon-contracts")
-
 	env := SetupEnv(t)
 
 	// Generate test key
@@ -199,13 +192,118 @@ func TestSignatureRecoveryCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedSigner, goRecovered, "Go signature recovery failed")
 
-	// Verify on contract
-	contractRecovered, err := env.CallRecoverRAVSigner(signedRAV)
+	// First, let's verify the EIP-712 hash matches
+	goHash, err := horizon.HashTypedData(domain, rav)
 	require.NoError(t, err)
+	contractHash, err := env.CallEncodeRAV(rav)
+	require.NoError(t, err)
+	t.Logf("Go EIP-712 hash:       %s", hex.EncodeToString(goHash[:]))
+	t.Logf("Contract EIP-712 hash: %s", hex.EncodeToString(contractHash[:]))
+	require.Equal(t, goHash[:], contractHash[:], "Hash mismatch between Go and contract")
+
+	// Now try to recover on contract
+	contractRecovered, err := env.CallRecoverRAVSigner(signedRAV)
+	require.NoError(t, err, "recoverRAVSigner failed")
 
 	require.Equal(t, expectedSigner, contractRecovered,
 		"Signature recovery mismatch: Go recovered %s, contract recovered %s",
 		expectedSigner.Pretty(), contractRecovered.Pretty())
+}
+
+// TestSignatureEncodingComparison compares the SignedRAV encoding from recoverRAVSigner vs collect
+func TestSignatureEncodingComparison(t *testing.T) {
+	env := SetupEnv(t)
+
+	// Use a fixed key for reproducibility
+	key, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+
+	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+
+	var collectionID horizon.CollectionID
+	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
+
+	rav := &horizon.RAV{
+		CollectionID:    collectionID,
+		Payer:           key.PublicKey().Address(),
+		ServiceProvider: eth.MustNewAddress("0x1111111111111111111111111111111111111111"),
+		DataService:     eth.MustNewAddress("0x2222222222222222222222222222222222222222"),
+		TimestampNs:     1234567890123456789,
+		ValueAggregate:  big.NewInt(1000000000000000000),
+		Metadata:        []byte{},
+	}
+
+	signedRAV, err := horizon.Sign(domain, rav, key)
+	require.NoError(t, err)
+
+	// Get the encoding from recoverRAVSigner
+	recoverRAVSignerFn := env.ABIs.Collector.FindFunctionByName("recoverRAVSigner")
+	require.NotNil(t, recoverRAVSignerFn)
+
+	ravTuple := map[string]interface{}{
+		"collectionId":    rav.CollectionID[:],
+		"payer":           rav.Payer,
+		"serviceProvider": rav.ServiceProvider,
+		"dataService":     rav.DataService,
+		"timestampNs":     rav.TimestampNs,
+		"valueAggregate":  rav.ValueAggregate,
+		"metadata":        rav.Metadata,
+	}
+
+	sig := signedRAV.Signature
+	rsv := make([]byte, 65)
+	copy(rsv[0:32], sig[1:33])
+	copy(rsv[32:64], sig[33:65])
+	rsv[64] = sig[0]
+
+	signedRAVTuple := map[string]interface{}{
+		"rav":       ravTuple,
+		"signature": rsv,
+	}
+
+	recoverData, err := recoverRAVSignerFn.NewCall(signedRAVTuple).Encode()
+	require.NoError(t, err)
+
+	// Get the encoding from collectDataEncoder (synthetic ABI)
+	collectData := encodeCollectData(signedRAV, 100000, eth.Address{})
+
+	t.Logf("\n=== Encoding Comparison ===")
+	t.Logf("recoverRAVSigner calldata length: %d", len(recoverData))
+	t.Logf("collectData (bytes param) length: %d", len(collectData))
+
+	// The recoverRAVSigner calldata should have:
+	// - 4 bytes selector
+	// - 32 bytes offset to SignedRAV
+	// - SignedRAV data
+	// Total SignedRAV data portion: len(recoverData) - 4 - 32 = len(recoverData) - 36
+
+	// The collectData should have:
+	// - 32 bytes offset to SignedRAV
+	// - 32 bytes dataServiceCut
+	// - 32 bytes receiverDestination
+	// - SignedRAV data
+	// The SignedRAV starts at offset specified in first 32 bytes
+
+	// Extract SignedRAV portion from recoverData (skip selector + offset)
+	// In recoverData: offset to SignedRAV is at bytes 4-35, value should be 0x20 (32)
+	recoverOffset := new(big.Int).SetBytes(recoverData[4:36]).Uint64()
+	t.Logf("recoverRAVSigner: offset to SignedRAV = %d (0x%x)", recoverOffset, recoverOffset)
+
+	// In collectData: first 32 bytes is offset to SignedRAV
+	collectOffset := new(big.Int).SetBytes(collectData[0:32]).Uint64()
+	t.Logf("collectData: offset to SignedRAV = %d (0x%x)", collectOffset, collectOffset)
+
+	// Extract SignedRAV head from both
+	recoverSignedRAVHead := recoverData[4+int(recoverOffset) : 4+int(recoverOffset)+64]
+	collectSignedRAVHead := collectData[int(collectOffset) : int(collectOffset)+64]
+
+	t.Logf("\nrecoverRAVSigner SignedRAV head (first 64 bytes after offset):\n  %x", recoverSignedRAVHead)
+	t.Logf("collectData SignedRAV head (first 64 bytes after offset):\n  %x", collectSignedRAVHead)
+
+	// The SignedRAV head should be the same - it contains offsets to RAV and signature
+	require.Equal(t, recoverSignedRAVHead, collectSignedRAVHead, "SignedRAV head encoding differs!")
+
+	t.Logf("\nSignedRAV head is identical in both encodings")
 }
 
 // ========== Original Go-Only Tests ==========

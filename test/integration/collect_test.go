@@ -401,6 +401,12 @@ func encodeCollectData(signedRAV *horizon.SignedRAV, dataServiceCut uint64, rece
 		panic(fmt.Sprintf("encoding collect data: %v", err))
 	}
 
+	// Debug: print the encoded data for comparison with recoverRAVSigner
+	fmt.Printf("\n=== encodeCollectData Debug ===\n")
+	fmt.Printf("Total encoded length (with selector): %d bytes\n", len(data))
+	fmt.Printf("Data parameter length (without selector): %d bytes\n", len(data)-4)
+	fmt.Printf("Signature (R+S+V): %x\n", rsv)
+
 	// Return just the encoded arguments (strip 4-byte selector)
 	return data[4:]
 }
