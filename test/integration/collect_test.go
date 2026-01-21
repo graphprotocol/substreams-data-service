@@ -3,7 +3,6 @@ package integration
 import (
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"math/big"
 	"testing"
@@ -255,7 +254,7 @@ func callSetProvision(ctx testContext, rpcURL string, key *eth.PrivateKey, chain
 	return sendTransaction(ctx, rpcURL, key, chainID, &staking, big.NewInt(0), data)
 }
 
-// callCollect calls GraphTallyCollectorFull.collect(uint8 paymentType, bytes data)
+// callCollect calls GraphTallyCollector.collect(uint8 paymentType, bytes data)
 // Returns tokens collected (delta from previous collection)
 func callCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signedRAV *horizon.SignedRAV, dataServiceCut uint64, receiverDestination eth.Address, env *TestEnv) (uint64, error) {
 	rav := signedRAV.Message
@@ -277,37 +276,23 @@ func callCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID ui
 		zlog.Debug("tokens collected before", zap.Uint64("amount", collectedBefore))
 	}
 
-	// Function selector: collect(uint8,bytes) = 0x7f07d283
-	selector, _ := hex.DecodeString("7f07d283")
+	collectFn := env.ABIs.Collector.FindFunctionByName("collect")
+	if collectFn == nil {
+		return 0, fmt.Errorf("collect function not found in ABI")
+	}
 
 	// Encode the data parameter: (SignedRAV, dataServiceCut, receiverDestination)
 	encodedData := encodeCollectData(signedRAV, dataServiceCut, receiverDestination)
 
-	// Build full calldata: selector + paymentType + offset to bytes + bytes data
-	paymentType := uint8(1) // TAP payment type
-
-	calldata := make([]byte, 0, 1024)
-	calldata = append(calldata, selector...)
-
-	// paymentType (uint8 padded to 32 bytes)
-	paymentTypeBytes := make([]byte, 32)
-	paymentTypeBytes[31] = paymentType
-	calldata = append(calldata, paymentTypeBytes...)
-
-	// offset to bytes (points to 64 = 0x40)
-	offsetBytes := make([]byte, 32)
-	offsetBytes[31] = 0x40
-	calldata = append(calldata, offsetBytes...)
-
-	// bytes length
-	lengthBytes := make([]byte, 32)
-	binary.BigEndian.PutUint64(lengthBytes[24:], uint64(len(encodedData)))
-	calldata = append(calldata, lengthBytes...)
-
-	// bytes data (padded to 32-byte boundary)
-	paddedData := make([]byte, ((len(encodedData)+31)/32)*32)
-	copy(paddedData, encodedData)
-	calldata = append(calldata, paddedData...)
+	// Use eth-go to encode the outer collect(uint8, bytes, uint256) call
+	// The ABI has two overloads: collect(uint8, bytes) and collect(uint8, bytes, uint256)
+	// FindFunctionByName returns the 3-parameter version, so we pass tokensToCollect = 0 (collect all)
+	paymentType := uint8(1)          // TAP payment type
+	tokensToCollect := big.NewInt(0) // 0 means collect all available
+	calldata, err := collectFn.NewCall(paymentType, encodedData, tokensToCollect).Encode()
+	if err != nil {
+		return 0, fmt.Errorf("encoding collect call: %w", err)
+	}
 
 	// Send transaction
 	zlog.Debug("sending collect() transaction", zap.Uint64("chain_id", chainID))
@@ -332,64 +317,92 @@ func callCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID ui
 	return rav.ValueAggregate.Uint64(), nil
 }
 
+// collectDataEncoderABI is a synthetic ABI used to encode the collect() data parameter.
+// The data parameter is ABI-encoded (SignedRAV, uint256, address) which the contract
+// decodes internally. We use this synthetic ABI to leverage eth-go's tuple encoding.
+var collectDataEncoderABI *eth.ABI
+
+func init() {
+	var err error
+	// Create a synthetic ABI with a function that has the same parameter types as the collect data
+	// The function name doesn't matter - we only use it to encode the arguments
+	collectDataEncoderABI, err = eth.ParseABIFromBytes([]byte(`{
+		"abi": [{
+			"type": "function",
+			"name": "encode",
+			"inputs": [
+				{
+					"name": "signedRAV",
+					"type": "tuple",
+					"components": [
+						{
+							"name": "rav",
+							"type": "tuple",
+							"components": [
+								{"name": "collectionId", "type": "bytes32"},
+								{"name": "payer", "type": "address"},
+								{"name": "serviceProvider", "type": "address"},
+								{"name": "dataService", "type": "address"},
+								{"name": "timestampNs", "type": "uint64"},
+								{"name": "valueAggregate", "type": "uint128"},
+								{"name": "metadata", "type": "bytes"}
+							]
+						},
+						{"name": "signature", "type": "bytes"}
+					]
+				},
+				{"name": "dataServiceCut", "type": "uint256"},
+				{"name": "receiverDestination", "type": "address"}
+			]
+		}]
+	}`))
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse collectDataEncoderABI: %v", err))
+	}
+}
+
 // encodeCollectData encodes (SignedRAV, uint256 dataServiceCut, address receiverDestination) for collect()
+// This is the inner bytes parameter for collect(). It encodes a complex nested struct
+// that the contract decodes internally.
 func encodeCollectData(signedRAV *horizon.SignedRAV, dataServiceCut uint64, receiverDestination eth.Address) []byte {
+	encodeFn := collectDataEncoderABI.FindFunctionByName("encode")
+	if encodeFn == nil {
+		panic("encode function not found in collectDataEncoderABI")
+	}
+
 	rav := signedRAV.Message
 
-	// This is ABI encoding: (SignedRAV tuple, uint256, address)
-	buf := make([]byte, 0, 2048)
-
-	// Offset to SignedRAV tuple (0x60 = 96)
-	buf = append(buf, padLeft(big.NewInt(96).Bytes(), 32)...)
-
-	// dataServiceCut (uint256)
-	buf = append(buf, padLeft(big.NewInt(int64(dataServiceCut)).Bytes(), 32)...)
-
-	// receiverDestination (address)
-	buf = append(buf, padLeft(receiverDestination[:], 32)...)
-
-	// Now encode SignedRAV tuple
-	// SignedRAV has: rav (tuple with dynamic bytes) and signature (bytes)
-	// Offset to rav (0x40 = 64)
-	buf = append(buf, padLeft(big.NewInt(64).Bytes(), 32)...)
-
-	// Offset to signature (calculated from the end of RAV content)
-	// RAV content: 7 fixed slots (224 bytes) + metadata length slot (32 bytes) + padded metadata data
-	ravContentSize := int64(7*32 + 32) // 7 fixed slots + metadata length slot
-	if len(rav.Metadata) > 0 {
-		ravContentSize += int64(((len(rav.Metadata) + 31) / 32) * 32)
-	}
-	sigOffset := 64 + ravContentSize // 64 = offset to rav (32) + offset to sig (32)
-	buf = append(buf, padLeft(big.NewInt(sigOffset).Bytes(), 32)...)
-
-	// Encode RAV tuple
-	buf = append(buf, rav.CollectionID[:]...)
-	buf = append(buf, padLeft(rav.Payer[:], 32)...)
-	buf = append(buf, padLeft(rav.ServiceProvider[:], 32)...)
-	buf = append(buf, padLeft(rav.DataService[:], 32)...)
-	timestampBytes := make([]byte, 32)
-	binary.BigEndian.PutUint64(timestampBytes[24:], rav.TimestampNs)
-	buf = append(buf, timestampBytes...)
-	buf = append(buf, padLeft(rav.ValueAggregate.Bytes(), 32)...)
-	buf = append(buf, padLeft(big.NewInt(7*32).Bytes(), 32)...) // offset to metadata
-	buf = append(buf, padLeft(big.NewInt(int64(len(rav.Metadata))).Bytes(), 32)...)
-	if len(rav.Metadata) > 0 {
-		paddedMetadata := make([]byte, ((len(rav.Metadata)+31)/32)*32)
-		copy(paddedMetadata, rav.Metadata)
-		buf = append(buf, paddedMetadata...)
+	// Build the nested SignedRAV tuple using maps for eth-go's tuple encoding
+	ravTuple := map[string]interface{}{
+		"collectionId":    rav.CollectionID[:],
+		"payer":           rav.Payer,
+		"serviceProvider": rav.ServiceProvider,
+		"dataService":     rav.DataService,
+		"timestampNs":     rav.TimestampNs,
+		"valueAggregate":  rav.ValueAggregate,
+		"metadata":        rav.Metadata,
 	}
 
-	// Encode signature
-	// eth.Signature is V+R+S (65 bytes) but Solidity ECDSA.recover expects R+S+V
-	buf = append(buf, padLeft(big.NewInt(int64(len(signedRAV.Signature))).Bytes(), 32)...)
-	paddedSig := make([]byte, ((len(signedRAV.Signature)+31)/32)*32)
+	// Convert signature from V+R+S (eth-go format) to R+S+V (Solidity ECDSA format)
 	sig := signedRAV.Signature
-	copy(paddedSig[0:32], sig[1:33])   // R (32 bytes)
-	copy(paddedSig[32:64], sig[33:65]) // S (32 bytes)
-	paddedSig[64] = sig[0]             // V (1 byte)
-	buf = append(buf, paddedSig...)
+	rsv := make([]byte, 65)
+	copy(rsv[0:32], sig[1:33])   // R (32 bytes)
+	copy(rsv[32:64], sig[33:65]) // S (32 bytes)
+	rsv[64] = sig[0]             // V (1 byte)
 
-	return buf
+	signedRAVTuple := map[string]interface{}{
+		"rav":       ravTuple,
+		"signature": rsv,
+	}
+
+	// Encode the call and strip the 4-byte function selector to get raw tuple encoding
+	data, err := encodeFn.NewCall(signedRAVTuple, big.NewInt(int64(dataServiceCut)), receiverDestination).Encode()
+	if err != nil {
+		panic(fmt.Sprintf("encoding collect data: %v", err))
+	}
+
+	// Return just the encoded arguments (strip 4-byte selector)
+	return data[4:]
 }
 
 // CallTokensCollected queries tokensCollected mapping

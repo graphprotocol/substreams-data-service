@@ -852,6 +852,9 @@ func rpcCall[T any](ctx context.Context, rpcURL, method string, params interface
 	}
 
 	if rpcResp.Error != nil {
+		if rpcResp.Error.Data != "" {
+			return result, fmt.Errorf("RPC error %d: %s (data: %s)", rpcResp.Error.Code, rpcResp.Error.Message, rpcResp.Error.Data)
+		}
 		return result, fmt.Errorf("RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
 	}
 
@@ -861,6 +864,7 @@ func rpcCall[T any](ctx context.Context, rpcURL, method string, params interface
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    string `json:"data,omitempty"`
 }
 
 // CallContract makes a contract call
@@ -873,15 +877,10 @@ func (env *TestEnv) CallContract(to eth.Address, data []byte) ([]byte, error) {
 		"latest",
 	}
 
-	fmt.Printf("DEBUG CallContract: to=%s data=%s\n", to.Pretty(), "0x"+hex.EncodeToString(data))
-
 	resultHex, err := rpcCall[string](env.ctx, env.rpcURL, "eth_call", params)
 	if err != nil {
-		fmt.Printf("DEBUG CallContract error: %v\n", err)
 		return nil, err
 	}
-
-	fmt.Printf("DEBUG CallContract result: %s\n", resultHex)
 
 	if strings.HasPrefix(resultHex, "0x") {
 		resultHex = resultHex[2:]
@@ -939,45 +938,22 @@ func signLegacyTx(tx []interface{}, chainID uint64, key *eth.PrivateKey) ([]byte
 	r := new(big.Int).SetBytes(sig[1:33])
 	s := new(big.Int).SetBytes(sig[33:65])
 
-	fmt.Printf("DEBUG signLegacyTx: sig len=%d, v_raw=%d, chainID=%d\n", len(sig), v, chainID)
 	zlog.Debug("extracted signature components", zap.Uint64("v_raw", v), zap.String("r", r.String()), zap.String("s", s.String()))
 
 	// Normalize v to raw ECDSA recovery ID (0 or 1)
 	// eth-go Sign() returns v = 27 or 28 (Ethereum standard)
-	vOriginal := v
 	if v >= 27 {
 		v -= 27
 	}
-	fmt.Printf("DEBUG signLegacyTx: normalized v from %d to %d\n", vOriginal, v)
-	zlog.Debug("normalized v to raw ECDSA recovery ID", zap.Uint64("v_original", vOriginal), zap.Uint64("v_normalized", v))
 
 	// EIP-155: v = v + chainId * 2 + 35
-	vBeforeAdjustment := v
 	v = v + chainID*2 + 35
-	calculatedChainID := (v - 35) / 2
-
-	fmt.Printf("DEBUG signLegacyTx: v_normalized=%d, v_final=%d, calculated_chain_id=%d\n", vBeforeAdjustment, v, calculatedChainID)
-	zlog.Debug("calculated EIP-155 v value",
-		zap.Uint64("v_raw", vBeforeAdjustment),
-		zap.Uint64("chain_id", chainID),
-		zap.Uint64("v_final", v),
-		zap.Uint64("expected_chain_id_from_v", calculatedChainID))
 
 	tx[6] = v
 	tx[7] = r
 	tx[8] = s
 
-	fmt.Printf("DEBUG signLegacyTx: tx contents before RLP:\n")
-	for i, item := range tx {
-		fmt.Printf("  tx[%d] type=%T value=%v\n", i, item, item)
-	}
-
 	encoded := rlpEncode(tx)
-	printLen := len(encoded)
-	if printLen > 100 {
-		printLen = 100
-	}
-	fmt.Printf("DEBUG signLegacyTx: RLP encoded len=%d hex=%x\n", len(encoded), encoded[:printLen])
 	return encoded, nil
 }
 

@@ -51,9 +51,9 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	require.False(t, isAuth, "Signer should not be authorized initially")
 	zlog.Debug("verified signer not initially authorized")
 
-	// Authorize the signer (payer authorizes signer)
+	// Authorize the signer (payer authorizes signer) - requires signer's key to generate proof
 	zlog.Info("authorizing signer", zap.Stringer("payer", env.PayerAddr), zap.Stringer("signer", signerAddr), zap.Uint64("chain_id", env.ChainID))
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerAddr, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 	zlog.Info("signer authorized successfully")
 
@@ -166,7 +166,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	// Call collect() - should fail
 	dataServiceCut := uint64(100000) // 10% in PPM
 	zlog.Info("calling collect() with unauthorized signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
-	_, err = callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, nil)
+	_, err = callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, env)
 	require.Error(t, err, "Collection should fail with unauthorized signer")
 	zlog.Info("collect() correctly failed with unauthorized signer", zap.Error(err))
 
@@ -203,8 +203,8 @@ func TestRevokeSignerFlow(t *testing.T) {
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	// Authorize the signer
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerAddr, env.ABIs.Collector)
+	// Authorize the signer - requires signer's key to generate proof
+	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 
 	// Verify signer is authorized
@@ -246,7 +246,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 	dataServiceCut := uint64(100000)
 	zlog.Info("calling collect() with revoked signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
-	_, err = callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, nil)
+	_, err = callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, env)
 	require.Error(t, err, "Collection should fail with revoked signer")
 	zlog.Info("collect() correctly failed with revoked signer", zap.Error(err))
 
@@ -255,34 +255,80 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 // ========== Contract Call Helpers ==========
 
-// callAuthorizeSigner calls Authorizable.authorizeSigner(address signer)
-func callAuthorizeSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+// callAuthorizeSigner calls Authorizable.authorizeSigner(address signer, uint256 proofDeadline, bytes proof)
+// This is the ORIGINAL contract signature that requires a cryptographic proof from the signer
+func callAuthorizeSigner(ctx testContext, rpcURL string, authorizerKey *eth.PrivateKey, chainID uint64, collector eth.Address, signerKey *eth.PrivateKey, abi *eth.ABI) error {
+	authorizerAddr := authorizerKey.PublicKey().Address()
+	signerAddr := signerKey.PublicKey().Address()
+
+	// Generate proof with deadline 1 hour in the future
+	proofDeadline := uint64(time.Now().Add(1 * time.Hour).Unix())
+
+	proof, err := GenerateSignerProof(chainID, collector, proofDeadline, authorizerAddr, signerKey)
+	if err != nil {
+		return fmt.Errorf("generating signer proof: %w", err)
+	}
+
 	authorizeSignerFn := abi.FindFunctionByName("authorizeSigner")
 	if authorizeSignerFn == nil {
 		return fmt.Errorf("authorizeSigner function not found in ABI")
 	}
 
-	data, err := authorizeSignerFn.NewCall(signer).Encode()
+	// Encode call: authorizeSigner(address signer, uint256 proofDeadline, bytes proof)
+	data, err := authorizeSignerFn.NewCall(signerAddr, new(big.Int).SetUint64(proofDeadline), proof).Encode()
 	if err != nil {
 		return fmt.Errorf("encoding authorizeSigner call: %w", err)
+	}
+
+	return sendTransaction(ctx, rpcURL, authorizerKey, chainID, &collector, big.NewInt(0), data)
+}
+
+// callThawSigner calls Authorizable.thawSigner(address signer)
+// This starts the thawing process before revocation
+func callThawSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+	thawSignerFn := abi.FindFunctionByName("thawSigner")
+	if thawSignerFn == nil {
+		return fmt.Errorf("thawSigner function not found in ABI")
+	}
+
+	data, err := thawSignerFn.NewCall(signer).Encode()
+	if err != nil {
+		return fmt.Errorf("encoding thawSigner call: %w", err)
 	}
 
 	return sendTransaction(ctx, rpcURL, key, chainID, &collector, big.NewInt(0), data)
 }
 
-// callRevokeSigner calls Authorizable.revokeSigner(address signer)
-func callRevokeSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
-	revokeSignerFn := abi.FindFunctionByName("revokeSigner")
+// callRevokeAuthorizedSigner calls Authorizable.revokeAuthorizedSigner(address signer)
+// This completes the revocation after thawing period has passed
+func callRevokeAuthorizedSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+	revokeSignerFn := abi.FindFunctionByName("revokeAuthorizedSigner")
 	if revokeSignerFn == nil {
-		return fmt.Errorf("revokeSigner function not found in ABI")
+		return fmt.Errorf("revokeAuthorizedSigner function not found in ABI")
 	}
 
 	data, err := revokeSignerFn.NewCall(signer).Encode()
 	if err != nil {
-		return fmt.Errorf("encoding revokeSigner call: %w", err)
+		return fmt.Errorf("encoding revokeAuthorizedSigner call: %w", err)
 	}
 
 	return sendTransaction(ctx, rpcURL, key, chainID, &collector, big.NewInt(0), data)
+}
+
+// callRevokeSigner performs the two-step revoke flow: thaw + revoke
+// Since thawing period is 0 in our test setup, we can call both immediately
+func callRevokeSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+	// Step 1: Thaw the signer
+	if err := callThawSigner(ctx, rpcURL, key, chainID, collector, signer, abi); err != nil {
+		return fmt.Errorf("thawing signer: %w", err)
+	}
+
+	// Step 2: Revoke the signer (thawing period is 0, so we can do this immediately)
+	if err := callRevokeAuthorizedSigner(ctx, rpcURL, key, chainID, collector, signer, abi); err != nil {
+		return fmt.Errorf("revoking signer: %w", err)
+	}
+
+	return nil
 }
 
 // CallIsAuthorized queries Authorizable.isAuthorized(address authorizer, address signer)
