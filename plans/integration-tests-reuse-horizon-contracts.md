@@ -1,14 +1,28 @@
 # Plan: Improve Integration Tests to Reuse Original Horizon Contracts
 
-## Status: IMPLEMENTATION COMPLETE (Core Functionality)
+## Status: IMPLEMENTATION COMPLETE
 
 **Last Updated**: 2026-01-19
 
-**Completion**: All 10 integration tests passing ✅
+**Completion**: All 16 integration tests passing ✅
 
-**Note**: SubstreamsDataService contract deployment deferred to future phase (see details below)
+### What's Now Using Original Contracts:
 
-See `test/integration/IMPLEMENTATION_STATUS.md` for detailed status.
+| Contract | Status | Source |
+|----------|--------|--------|
+| **GraphTallyCollector** | Original ✅ | `horizon-contracts` |
+| **PaymentsEscrow** | Original ✅ | `horizon-contracts` |
+| **GraphPayments** | Original ✅ | `horizon-contracts` |
+| MockGRTToken | Mock | `TestMocks.sol` |
+| MockController | Mock | `TestMocks.sol` |
+| MockStaking | Mock | `TestMocks.sol` |
+| MockEpochManager | Stub | `TestMocks.sol` |
+| MockRewardsManager | Stub | `TestMocks.sol` |
+| MockTokenGateway | Stub | `TestMocks.sol` |
+| MockProxyAdmin | Stub | `TestMocks.sol` |
+| MockCuration | Stub | `TestMocks.sol` |
+
+**Note**: SubstreamsDataService contract deployment deferred to future phase.
 
 ## ULTIMATE GOAL
 

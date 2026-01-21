@@ -26,39 +26,53 @@ echo "horizon-contracts mount verified successfully"
 forge build
 
 # List of contracts to extract
+# MOCKS (from TestMocks.sol) - These are our test infrastructure
+# ORIGINAL (from horizon-contracts via OriginalContracts.sol) - These are the real contracts we test against
 contracts=(
-    "GraphTallyVerifier"
+    # Original contracts from horizon-contracts (via OriginalContracts.sol)
+    "PaymentsEscrow"
+    "GraphPayments"
+    "GraphTallyCollector"
+
+    # Mock infrastructure (from TestMocks.sol)
     "MockGRTToken"
     "MockController"
     "MockStaking"
-    "MockPaymentsEscrow"
-    "MockGraphPayments"
     "MockEpochManager"
-    "GraphTallyCollectorFull"
+    "MockRewardsManager"
+    "MockTokenGateway"
+    "MockProxyAdmin"
+    "MockCuration"
+
+    # Our data service contract
     "SubstreamsDataService"
 )
 
 # Extract artifacts
 for contract in "${contracts[@]}"; do
-    # Try different source file patterns
     ARTIFACT_PATH=""
 
-    if [ -f "out/GraphTallyVerifier.sol/${contract}.json" ]; then
-        ARTIFACT_PATH="out/GraphTallyVerifier.sol/${contract}.json"
-    elif [ -f "out/IntegrationTestContracts.sol/${contract}.json" ]; then
-        ARTIFACT_PATH="out/IntegrationTestContracts.sol/${contract}.json"
-    elif [ -f "out/GraphTallyCollectorFull.sol/${contract}.json" ]; then
-        ARTIFACT_PATH="out/GraphTallyCollectorFull.sol/${contract}.json"
+    # Check all possible source file locations
+    # IMPORTANT: Prefer TestMocks.sol for Mock* contracts since they have full implementations
+    if [ -f "out/TestMocks.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/TestMocks.sol/${contract}.json"
+    elif [ -f "out/OriginalContracts.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/OriginalContracts.sol/${contract}.json"
     elif [ -f "out/SubstreamsDataService.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/SubstreamsDataService.sol/${contract}.json"
-    elif [ -f "out/MockEpochManager.sol/${contract}.json" ]; then
-        ARTIFACT_PATH="out/MockEpochManager.sol/${contract}.json"
+    # Original contracts may be compiled under their own source file names
+    elif [ -f "out/PaymentsEscrow.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/PaymentsEscrow.sol/${contract}.json"
+    elif [ -f "out/GraphPayments.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/GraphPayments.sol/${contract}.json"
+    elif [ -f "out/GraphTallyCollector.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/GraphTallyCollector.sol/${contract}.json"
     fi
 
     if [ -z "$ARTIFACT_PATH" ]; then
         echo "ERROR: Contract artifact not found for $contract"
         echo "Available artifacts:"
-        find out -name "*.json" | head -20
+        find out -name "*.json" | head -30
         exit 1
     fi
 
@@ -66,5 +80,9 @@ for contract in "${contracts[@]}"; do
     cp "$ARTIFACT_PATH" "/output/${contract}.json"
 done
 
+echo ""
 echo "Build complete!"
+echo "ORIGINAL contracts (from horizon-contracts): PaymentsEscrow, GraphPayments, GraphTallyCollector"
+echo "MOCK contracts (test infrastructure): MockGRTToken, MockController, MockStaking, etc."
+echo ""
 ls -la /output/

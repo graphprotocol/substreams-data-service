@@ -35,12 +35,12 @@ func TestMain(m *testing.M) {
 func ensureContractArtifacts() error {
 	testDir := getTestDir()
 	artifactsDir := filepath.Join(testDir, "testdata", "contracts")
-	verifierArtifact := filepath.Join(artifactsDir, "GraphTallyVerifier.json")
+	collectorArtifact := filepath.Join(artifactsDir, "GraphTallyCollector.json")
 
 	// Check if artifacts already exist
 	forceBuild := os.Getenv("FORCE_CONTRACTS_BUILD") == "true"
 	if !forceBuild {
-		if _, err := os.Stat(verifierArtifact); err == nil {
+		if _, err := os.Stat(collectorArtifact); err == nil {
 			fmt.Println("Contract artifacts found, skipping build")
 			return nil
 		}
@@ -108,7 +108,7 @@ func ensureContractArtifacts() error {
 	}
 
 	// Verify artifact was created
-	if _, err := os.Stat(verifierArtifact); err != nil {
+	if _, err := os.Stat(collectorArtifact); err != nil {
 		return fmt.Errorf("artifact not found after build: %w", err)
 	}
 

@@ -1,14 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.27;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+/**
+ * @title Test Mock Contracts
+ * @notice These are MOCK contracts used only for testing. They provide minimal implementations
+ *         of dependencies that are NOT the focus of our tests.
+ *
+ * For integration tests, we use ORIGINAL contracts from horizon-contracts for:
+ *   - GraphTallyCollector (RAV verification, EIP-712)
+ *   - PaymentsEscrow (3-level escrow mapping)
+ *   - GraphPayments (payment distribution)
+ *
+ * These mocks provide the surrounding infrastructure:
+ *   - MockGRTToken: Simple ERC20 with IGraphToken interface
+ *   - MockController: Contract registry
+ *   - MockStaking: IHorizonStaking for provision tracking
+ *   - MockEpochManager, MockRewardsManager, MockTokenGateway,
+ *     MockProxyAdmin, MockCuration: GraphDirectory stubs
+ */
+
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IHorizonStaking} from "@graphprotocol/interfaces/contracts/horizon/IHorizonStaking.sol";
 import {IGraphPayments} from "@graphprotocol/interfaces/contracts/horizon/IGraphPayments.sol";
 
+// ============================================================================
+// REQUIRED MOCKS - These implement real functionality for test infrastructure
+// ============================================================================
+
 /**
- * @title Mock GRT Token for testing
+ * @title MockGRTToken
+ * @notice Simple ERC20 implementing IGraphToken interface for testing
+ * @dev Used by original PaymentsEscrow and GraphPayments contracts
  */
 contract MockGRTToken is ERC20 {
     constructor() ERC20("Graph Token", "GRT") {
@@ -27,10 +50,28 @@ contract MockGRTToken is ERC20 {
     function burnFrom(address from, uint256 amount) external {
         _burn(from, amount);
     }
+
+    // IGraphToken interface stubs (not needed for our tests but required by interface)
+    function addMinter(address) external {}
+    function removeMinter(address) external {}
+    function renounceMinter() external {}
+    function isMinter(address) external pure returns (bool) { return true; }
+    function permit(address, address, uint256, uint256, uint8, bytes32, bytes32) external {}
+    function increaseAllowance(address spender, uint256 addedValue) external returns (bool) {
+        _approve(msg.sender, spender, allowance(msg.sender, spender) + addedValue);
+        return true;
+    }
+    function decreaseAllowance(address spender, uint256 subtractedValue) external returns (bool) {
+        uint256 currentAllowance = allowance(msg.sender, spender);
+        require(currentAllowance >= subtractedValue, "ERC20: decreased allowance below zero");
+        _approve(msg.sender, spender, currentAllowance - subtractedValue);
+        return true;
+    }
 }
 
 /**
- * @title Mock Controller for testing
+ * @title MockController
+ * @notice Contract registry for GraphDirectory lookups
  */
 contract MockController {
     mapping(bytes32 => address) private _registry;
@@ -58,11 +99,10 @@ contract MockController {
 }
 
 /**
- * @title Mock Staking contract for testing
- * @dev Implements IHorizonStaking methods required by ProvisionManager and GraphPayments
+ * @title MockStaking
+ * @notice Implements IHorizonStaking methods required by ProvisionManager and GraphPayments
  */
 contract MockStaking {
-    // Storage for provisions: serviceProvider => dataService => Provision
     struct ProvisionData {
         uint256 tokens;
         uint256 tokensThawing;
@@ -79,13 +119,17 @@ contract MockStaking {
     mapping(address => mapping(address => ProvisionData)) private _provisions;
     mapping(address => mapping(address => IHorizonStaking.DelegationPool)) private _delegationPools;
     mapping(address => mapping(address => mapping(IGraphPayments.PaymentTypes => uint256))) private _delegationFeeCuts;
-
-    // Authorized operators: serviceProvider => dataService => operator => authorized
     mapping(address => mapping(address => mapping(address => bool))) private _operators;
+
+    // GRT token for staking operations
+    IERC20 public graphToken;
+
+    function setGraphToken(address token) external {
+        graphToken = IERC20(token);
+    }
 
     /**
      * @notice Set up a provision for testing
-     * @dev This is a test helper - creates a provision with createdAt set
      */
     function setProvision(
         address serviceProvider,
@@ -100,7 +144,7 @@ contract MockStaking {
             sharesThawing: 0,
             maxVerifierCut: maxVerifierCut,
             thawingPeriod: thawingPeriod,
-            createdAt: uint64(block.timestamp), // Mark as created
+            createdAt: uint64(block.timestamp),
             maxVerifierCutPending: maxVerifierCut,
             thawingPeriodPending: thawingPeriod,
             lastParametersStagedAt: 0,
@@ -110,7 +154,6 @@ contract MockStaking {
 
     /**
      * @notice Authorize an operator for a service provider
-     * @dev Required by ProvisionManager.onlyAuthorizedForProvision
      */
     function setOperator(address serviceProvider, address dataService, address operator, bool authorized) external {
         _operators[serviceProvider][dataService][operator] = authorized;
@@ -118,22 +161,12 @@ contract MockStaking {
 
     // --- IHorizonStaking interface methods ---
 
-    /**
-     * @notice Check if caller is authorized for provision
-     * @dev Called by ProvisionManager.onlyAuthorizedForProvision modifier
-     */
     function isAuthorized(address serviceProvider, address dataService, address caller)
         external view returns (bool) {
-        // Service provider is always authorized for themselves
         if (caller == serviceProvider) return true;
-        // Check explicit operator authorization
         return _operators[serviceProvider][dataService][caller];
     }
 
-    /**
-     * @notice Get provision for service provider
-     * @dev Called by ProvisionManager._getProvision
-     */
     function getProvision(address serviceProvider, address dataService)
         external view returns (IHorizonStaking.Provision memory provision) {
         ProvisionData storage p = _provisions[serviceProvider][dataService];
@@ -150,20 +183,12 @@ contract MockStaking {
         return provision;
     }
 
-    /**
-     * @notice Accept provision parameters
-     * @dev Called by ProvisionManager._acceptProvisionParameters
-     */
     function acceptProvisionParameters(address serviceProvider) external {
         ProvisionData storage p = _provisions[serviceProvider][msg.sender];
         p.maxVerifierCut = p.maxVerifierCutPending;
         p.thawingPeriod = p.thawingPeriodPending;
     }
 
-    /**
-     * @notice Get available tokens (not thawing)
-     * @dev Used by GraphTallyCollector to check provider has sufficient stake
-     */
     function getProviderTokensAvailable(address serviceProvider, address verifier)
         external view returns (uint256) {
         ProvisionData storage p = _provisions[serviceProvider][verifier];
@@ -184,10 +209,18 @@ contract MockStaking {
 
     function addToDelegationPool(address serviceProvider, address dataService, uint256 tokens) external {
         _delegationPools[serviceProvider][dataService].tokens += tokens;
+        // Transfer tokens from sender (GraphPayments) to this contract
+        if (address(graphToken) != address(0) && tokens > 0) {
+            graphToken.transferFrom(msg.sender, address(this), tokens);
+        }
     }
 
     function stakeTo(address serviceProvider, uint256 tokens) external {
         _provisions[serviceProvider][msg.sender].tokens += tokens;
+        // Transfer tokens from sender (GraphPayments) to this contract
+        if (address(graphToken) != address(0) && tokens > 0) {
+            graphToken.transferFrom(msg.sender, address(this), tokens);
+        }
     }
 
     // Test helpers
@@ -201,101 +234,80 @@ contract MockStaking {
     }
 }
 
+// ============================================================================
+// GRAPHDIRECTORY STUBS - Minimal implementations to satisfy GraphDirectory
+// These contracts are NOT tested - they just need to exist in the registry
+// ============================================================================
+
 /**
- * @title Mock PaymentsEscrow for testing
- * @dev Uses 3-level mapping (payer -> collector -> receiver) like the original contract
+ * @title MockEpochManager
+ * @notice Minimal stub for GraphDirectory
  */
-contract MockPaymentsEscrow {
-    IERC20 public immutable graphToken;
-
-    // 3-level mapping: payer => collector => receiver => balance
-    mapping(address => mapping(address => mapping(address => uint256))) private _escrowBalances;
-
-    event Deposited(address indexed sender, address indexed collector, address indexed receiver, uint256 amount);
-    event Collected(
-        address indexed payer,
-        address indexed receiver,
-        uint256 amount,
-        address indexed dataService,
-        uint256 dataServiceCut,
-        address receiverDestination
-    );
-
-    constructor(address _graphToken) {
-        graphToken = IERC20(_graphToken);
+contract MockEpochManager {
+    function currentEpoch() external pure returns (uint256) {
+        return 1;
     }
 
-    /**
-     * @notice Deposit tokens to escrow for a specific collector and receiver
-     * @param collector The address of the collector (typically GraphTallyCollector)
-     * @param receiver The address of the receiver (service provider)
-     * @param amount The amount of tokens to deposit
-     */
-    function deposit(address collector, address receiver, uint256 amount) external {
-        require(graphToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
-        _escrowBalances[msg.sender][collector][receiver] += amount;
-        emit Deposited(msg.sender, collector, receiver, amount);
-    }
-
-    /**
-     * @notice Get escrow balance for payer -> collector -> receiver
-     */
-    function getEscrowAmount(address payer, address collector, address receiver) external view returns (uint256) {
-        return _escrowBalances[payer][collector][receiver];
-    }
-
-    /**
-     * @notice Collect tokens from escrow and approve GraphPayments
-     * @dev Called by GraphTallyCollector (msg.sender is the collector)
-     */
-    function collect(
-        uint8 /* paymentType */,
-        address payer,
-        address receiver,
-        uint256 amount,
-        address dataService,
-        uint256 dataServiceCut,
-        address receiverDestination
-    ) external {
-        require(_escrowBalances[payer][msg.sender][receiver] >= amount, "Insufficient escrow balance");
-        _escrowBalances[payer][msg.sender][receiver] -= amount;
-
-        // Calculate cuts
-        uint256 dataServiceAmount = (amount * dataServiceCut) / 1_000_000; // PPM
-        uint256 receiverAmount = amount - dataServiceAmount;
-
-        // Transfer tokens
-        if (dataServiceAmount > 0) {
-            require(graphToken.transfer(dataService, dataServiceAmount), "Data service transfer failed");
-        }
-        if (receiverAmount > 0) {
-            address destination = receiverDestination == address(0) ? receiver : receiverDestination;
-            require(graphToken.transfer(destination, receiverAmount), "Receiver transfer failed");
-        }
-
-        emit Collected(payer, receiver, amount, dataService, dataServiceCut, receiverDestination);
+    function epochLength() external pure returns (uint256) {
+        return 6646;
     }
 }
 
 /**
- * @title Mock GraphPayments for testing
+ * @title MockRewardsManager
+ * @notice Minimal stub for GraphDirectory
  */
-contract MockGraphPayments {
-    function collect(
-        uint8 paymentType,
-        bytes calldata data
-    ) external returns (uint256) {
-        // Forward to collector - not implemented in this mock
+contract MockRewardsManager {
+    function onSubgraphAllocationUpdate(bytes32) external pure returns (uint256) {
+        return 0;
+    }
+
+    function takeRewards(address) external pure returns (uint256) {
         return 0;
     }
 }
 
 /**
- * @title MockEpochManager
- * @notice Minimal mock for testing - just needs to exist for GraphDirectory
+ * @title MockTokenGateway
+ * @notice Minimal stub for GraphDirectory
  */
-contract MockEpochManager {
-    function currentEpoch() external pure returns (uint256) {
-        return 1;
+contract MockTokenGateway {
+    function outboundTransfer(
+        address,
+        address,
+        uint256,
+        uint256,
+        uint256,
+        bytes calldata
+    ) external pure returns (bytes memory) {
+        return "";
+    }
+}
+
+/**
+ * @title MockProxyAdmin
+ * @notice Minimal stub for GraphDirectory
+ */
+contract MockProxyAdmin {
+    function getProxyImplementation(address) external pure returns (address) {
+        return address(0);
+    }
+
+    function getProxyAdmin(address) external pure returns (address) {
+        return address(0);
+    }
+}
+
+/**
+ * @title MockCuration
+ * @notice Minimal stub for GraphDirectory
+ */
+contract MockCuration {
+    function isCurated(bytes32) external pure returns (bool) {
+        return false;
+    }
+
+    function getCurationPoolSignal(bytes32) external pure returns (uint256) {
+        return 0;
     }
 }

@@ -14,10 +14,12 @@ RUN forge init --no-git .
 RUN forge install OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
 RUN forge install OpenZeppelin/openzeppelin-contracts-upgradeable@v5.1.0 --no-git
 
-# Now copy our test contracts (will overwrite the default src files)
-COPY contracts/GraphTallyVerifier.sol ./src/
-COPY contracts/IntegrationTestContracts.sol ./src/
-COPY contracts/GraphTallyCollectorFull.sol ./src/
+# Copy our contracts
+# TestMocks.sol: Contains MOCK contracts (MockGRTToken, MockController, MockStaking, stubs)
+# OriginalContracts.sol: Imports ORIGINAL contracts from horizon-contracts (PaymentsEscrow, GraphPayments, GraphTallyCollector)
+# SubstreamsDataService.sol: Our data service contract
+COPY contracts/TestMocks.sol ./src/
+COPY contracts/OriginalContracts.sol ./src/
 COPY contracts/SubstreamsDataService.sol ./src/
 
 # Copy build script
