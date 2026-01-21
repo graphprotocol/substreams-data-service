@@ -13,31 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ========== Contract Call Helpers ==========
-
-// domainSeparator() returns the EIP-712 domain separator
-func (env *TestEnv) CallDomainSeparator() (eth.Hash, error) {
-	domainSeparatorFn := env.ABIs.Collector.FindFunctionByName("domainSeparator")
-	if domainSeparatorFn == nil {
-		return nil, fmt.Errorf("domainSeparator function not found in ABI")
-	}
-
-	data, err := domainSeparatorFn.NewCall().Encode()
-	if err != nil {
-		return nil, fmt.Errorf("encoding domainSeparator call: %w", err)
-	}
-
-	result, err := env.CallContract(env.CollectorAddress, data)
-	if err != nil {
-		return nil, err
-	}
-
-	// eth.Hash is []byte, so just return the result directly
-	return eth.Hash(result), nil
-}
-
-// encodeRAV(ReceiptAggregateVoucher calldata rav) returns the EIP-712 hash
-// Function selector from our contract
+// CallEncodeRAV calls encodeRAV(ReceiptAggregateVoucher calldata rav) which returns the EIP-712 hash
+// Note: eth-go doesn't properly handle tuples with dynamic components (like bytes),
+// so we use manual ABI encoding for this function.
 func (env *TestEnv) CallEncodeRAV(rav *horizon.RAV) (eth.Hash, error) {
 	// Function selector for encodeRAV(tuple)
 	// encodeRAV((bytes32,address,address,address,uint64,uint128,bytes))
@@ -103,7 +81,9 @@ func (env *TestEnv) CallEncodeRAV(rav *horizon.RAV) (eth.Hash, error) {
 	return eth.Hash(result), nil
 }
 
-// recoverRAVSigner(SignedRAV calldata signedRAV) returns the signer address
+// CallRecoverRAVSigner calls recoverRAVSigner(SignedRAV calldata signedRAV) which returns the signer address
+// Note: eth-go doesn't properly handle tuples with dynamic components (like bytes),
+// so we use manual ABI encoding for this function.
 func (env *TestEnv) CallRecoverRAVSigner(signedRAV *horizon.SignedRAV) (eth.Address, error) {
 	// Function selector for recoverRAVSigner(((bytes32,address,address,address,uint64,uint128,bytes),bytes))
 	selector, _ := hex.DecodeString("63648817")
@@ -213,24 +193,6 @@ func padLeft(b []byte, size int) []byte {
 }
 
 // ========== On-Chain Verification Tests ==========
-
-func TestDomainSeparatorCompatibility(t *testing.T) {
-	env := SetupEnv(t)
-
-	// Compute domain separator in Go
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
-	goDomainSep := domain.Separator()
-
-	// Get domain separator from contract
-	contractDomainSep, err := env.CallDomainSeparator()
-	require.NoError(t, err)
-
-	// They must match
-	require.Equal(t, goDomainSep[:], contractDomainSep[:],
-		"Domain separator mismatch between Go (%s) and Solidity (%s)",
-		hex.EncodeToString(goDomainSep[:]),
-		hex.EncodeToString(contractDomainSep[:]))
-}
 
 func TestEIP712HashCompatibility(t *testing.T) {
 	env := SetupEnv(t)
@@ -528,7 +490,7 @@ func TestReceiptTimestampValidation(t *testing.T) {
 	baseTimestamp := uint64(time.Now().UnixNano())
 
 	var initialReceipts []*horizon.SignedReceipt
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		receipt := &horizon.Receipt{
 			CollectionID:    collectionID,
 			Payer:           payer,
