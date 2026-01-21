@@ -50,6 +50,17 @@ func TestCollectRAV(t *testing.T) {
 	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
+	// Create a dedicated signer key for signing RAVs
+	// In the original contract, self-authorization is NOT supported - we must explicitly authorize
+	signerKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	signerAddr := signerKey.PublicKey().Address()
+
+	// Authorize the signer (payer authorizes the signer to sign RAVs on their behalf)
+	zlog.Debug("authorizing signer for RAV signing", zap.Stringer("payer", env.PayerAddr), zap.Stringer("signer", signerAddr))
+	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	require.NoError(t, err, "Failed to authorize signer")
+
 	// Create domain
 	zlog.Debug("creating EIP-712 domain", zap.Uint64("chain_id", env.ChainID), zap.String("verifying_contract", env.CollectorAddress.Pretty()))
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
@@ -70,16 +81,16 @@ func TestCollectRAV(t *testing.T) {
 		Metadata:        []byte{},
 	}
 
-	// Sign RAV with payer key
-	zlog.Debug("signing RAV with payer key")
-	signedRAV, err := horizon.Sign(domain, rav, env.PayerKey)
+	// Sign RAV with authorized signer key (not payer key)
+	zlog.Debug("signing RAV with authorized signer key")
+	signedRAV, err := horizon.Sign(domain, rav, signerKey)
 	require.NoError(t, err)
 	zlog.Debug("RAV signed successfully")
 
 	// Verify signature locally first
 	recoveredSigner, err := signedRAV.RecoverSigner(domain)
 	require.NoError(t, err)
-	require.Equal(t, env.PayerAddr, recoveredSigner)
+	require.Equal(t, signerAddr, recoveredSigner)
 	zlog.Debug("signature verified locally", zap.Stringer("recovered_signer", recoveredSigner))
 
 	// Call collect() from data service account
@@ -122,6 +133,15 @@ func TestCollectRAVIncremental(t *testing.T) {
 	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
+	// Create a dedicated signer key for signing RAVs
+	// In the original contract, self-authorization is NOT supported - we must explicitly authorize
+	signerKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+
+	// Authorize the signer (payer authorizes the signer to sign RAVs on their behalf)
+	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	require.NoError(t, err, "Failed to authorize signer")
+
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
 
 	var collectionID horizon.CollectionID
@@ -138,7 +158,7 @@ func TestCollectRAVIncremental(t *testing.T) {
 		Metadata:        []byte{},
 	}
 
-	signedRAV1, err := horizon.Sign(domain, rav1, env.PayerKey)
+	signedRAV1, err := horizon.Sign(domain, rav1, signerKey)
 	require.NoError(t, err)
 
 	dataServiceCut := uint64(100000) // 10% in PPM
@@ -157,7 +177,7 @@ func TestCollectRAVIncremental(t *testing.T) {
 		Metadata:        []byte{},
 	}
 
-	signedRAV2, err := horizon.Sign(domain, rav2, env.PayerKey)
+	signedRAV2, err := horizon.Sign(domain, rav2, signerKey)
 	require.NoError(t, err)
 
 	collected2, err := callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV2, dataServiceCut, eth.Address{}, env)
@@ -374,15 +394,16 @@ func encodeCollectData(signedRAV *horizon.SignedRAV, dataServiceCut uint64, rece
 
 // CallTokensCollected queries tokensCollected mapping
 func (env *TestEnv) CallTokensCollected(dataService eth.Address, collectionID horizon.CollectionID, receiver eth.Address, payer eth.Address) (uint64, error) {
-	// Function selector: tokensCollected(address,bytes32,address,address) = 0x181250ff
-	selector, _ := hex.DecodeString("181250ff")
+	tokensCollectedFn := env.ABIs.Collector.FindFunctionByName("tokensCollected")
+	if tokensCollectedFn == nil {
+		return 0, fmt.Errorf("tokensCollected function not found in ABI")
+	}
 
-	data := make([]byte, 4+32+32+32+32)
-	copy(data[0:4], selector)
-	copy(data[4+12:36], dataService[:])
-	copy(data[36:68], collectionID[:])
-	copy(data[68+12:100], receiver[:])
-	copy(data[100+12:132], payer[:])
+	// eth-go expects []byte for bytes32 parameters
+	data, err := tokensCollectedFn.NewCall(dataService, collectionID[:], receiver, payer).Encode()
+	if err != nil {
+		return 0, fmt.Errorf("encoding tokensCollected call: %w", err)
+	}
 
 	result, err := env.CallContract(env.CollectorAddress, data)
 	if err != nil {

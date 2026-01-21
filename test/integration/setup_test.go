@@ -38,6 +38,7 @@ type ABIs struct {
 	Escrow      *eth.ABI
 	Collector   *eth.ABI
 	DataService *eth.ABI
+	Controller  *eth.ABI
 }
 
 // TestEnv holds the test environment state
@@ -51,6 +52,7 @@ type TestEnv struct {
 	Controller            eth.Address
 	Staking               eth.Address
 	PaymentsEscrow        eth.Address
+	GraphPayments         eth.Address
 	CollectorAddress      eth.Address
 	SubstreamsDataService eth.Address
 	DeployerKey           *eth.PrivateKey
@@ -250,11 +252,16 @@ func setupEnv() (*TestEnv, error) {
 	}
 	zlog.Debug("data service funded successfully", zap.String("amount", "2 ETH"))
 
-	// Deploy contract stack in order: GRT -> Controller -> Staking -> Escrow -> Collector
-	zlog.Info("deploying contract stack", zap.Uint64("chain_id", chainIDInt.Uint64()))
+	chainID := chainIDInt.Uint64()
 
-	// 1. Deploy GRT Token
-	zlog.Debug("loading GRT token artifact")
+	// ============================================================================
+	// PHASE 1: Deploy all MOCK infrastructure contracts
+	// These are minimal implementations that satisfy GraphDirectory dependencies
+	// ============================================================================
+	zlog.Info("Phase 1: Deploying mock infrastructure contracts")
+
+	// 1. Deploy MockGRTToken
+	zlog.Debug("loading MockGRTToken artifact")
 	grtArtifact, err := loadContractArtifact("MockGRTToken")
 	if err != nil {
 		zlog.Error("failed to load GRT artifact", zap.Error(err))
@@ -262,182 +269,275 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading GRT artifact: %w", err)
 	}
-	zlog.Debug("deploying GRT token contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	grtAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), grtArtifact, nil)
+	grtAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, grtArtifact, nil)
 	if err != nil {
 		zlog.Error("failed to deploy GRT token", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("deploying GRT: %w", err)
 	}
-	zlog.Info("GRT token deployed", zap.Stringer("grt_address", grtAddr))
+	zlog.Info("MockGRTToken deployed", zap.Stringer("address", grtAddr))
 
-	// 2. Deploy Controller
-	zlog.Debug("loading Controller artifact")
+	// 2. Deploy MockController
 	controllerArtifact, err := loadContractArtifact("MockController")
 	if err != nil {
-		zlog.Error("failed to load Controller artifact", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("loading Controller artifact: %w", err)
 	}
-	// Controller constructor takes governor address
 	controllerArgs, err := encodeConstructorArgs([]interface{}{deployerAddr})
 	if err != nil {
-		zlog.Error("failed to encode controller args", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("encoding controller args: %w", err)
 	}
-	zlog.Debug("deploying Controller contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	controllerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerArtifact, controllerArgs)
+	controllerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, controllerArtifact, controllerArgs)
 	if err != nil {
-		zlog.Error("failed to deploy Controller", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("deploying Controller: %w", err)
 	}
-	zlog.Info("Controller deployed", zap.Stringer("controller_address", controllerAddr))
+	zlog.Info("MockController deployed", zap.Stringer("address", controllerAddr))
 
-	// 3. Deploy Staking
-	zlog.Debug("loading Staking artifact")
+	// 3. Deploy MockStaking
 	stakingArtifact, err := loadContractArtifact("MockStaking")
 	if err != nil {
-		zlog.Error("failed to load Staking artifact", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("loading Staking artifact: %w", err)
 	}
-	zlog.Debug("deploying Staking contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	stakingAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), stakingArtifact, nil)
+	stakingAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, stakingArtifact, nil)
 	if err != nil {
-		zlog.Error("failed to deploy Staking", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("deploying Staking: %w", err)
 	}
-	zlog.Info("Staking deployed", zap.Stringer("staking_address", stakingAddr))
+	zlog.Info("MockStaking deployed", zap.Stringer("address", stakingAddr))
 
-	// 4. Deploy PaymentsEscrow
-	zlog.Debug("loading PaymentsEscrow artifact")
-	escrowArtifact, err := loadContractArtifact("MockPaymentsEscrow")
+	// Load Staking ABI for setGraphToken call
+	stakingABI, err := loadABI("MockStaking")
 	if err != nil {
-		zlog.Error("failed to load PaymentsEscrow artifact", zap.Error(err))
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading Staking ABI: %w", err)
+	}
+
+	// Set GRT token in MockStaking (needed for addToDelegationPool and stakeTo)
+	if err := callSetGraphToken(ctx, rpcURL, deployerKey, chainID, stakingAddr, grtAddr, stakingABI); err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("setting GRT token in staking: %w", err)
+	}
+	zlog.Debug("set GRT token in MockStaking")
+
+	// 4. Deploy MockEpochManager
+	epochManagerArtifact, err := loadContractArtifact("MockEpochManager")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading EpochManager artifact: %w", err)
+	}
+	epochManagerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, epochManagerArtifact, nil)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying EpochManager: %w", err)
+	}
+	zlog.Info("MockEpochManager deployed", zap.Stringer("address", epochManagerAddr))
+
+	// 5. Deploy MockRewardsManager
+	rewardsManagerArtifact, err := loadContractArtifact("MockRewardsManager")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading RewardsManager artifact: %w", err)
+	}
+	rewardsManagerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, rewardsManagerArtifact, nil)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying RewardsManager: %w", err)
+	}
+	zlog.Info("MockRewardsManager deployed", zap.Stringer("address", rewardsManagerAddr))
+
+	// 6. Deploy MockTokenGateway
+	tokenGatewayArtifact, err := loadContractArtifact("MockTokenGateway")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading TokenGateway artifact: %w", err)
+	}
+	tokenGatewayAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, tokenGatewayArtifact, nil)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying TokenGateway: %w", err)
+	}
+	zlog.Info("MockTokenGateway deployed", zap.Stringer("address", tokenGatewayAddr))
+
+	// 7. Deploy MockProxyAdmin
+	proxyAdminArtifact, err := loadContractArtifact("MockProxyAdmin")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading ProxyAdmin artifact: %w", err)
+	}
+	proxyAdminAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, proxyAdminArtifact, nil)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying ProxyAdmin: %w", err)
+	}
+	zlog.Info("MockProxyAdmin deployed", zap.Stringer("address", proxyAdminAddr))
+
+	// 8. Deploy MockCuration
+	curationArtifact, err := loadContractArtifact("MockCuration")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading Curation artifact: %w", err)
+	}
+	curationAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, curationArtifact, nil)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying Curation: %w", err)
+	}
+	zlog.Info("MockCuration deployed", zap.Stringer("address", curationAddr))
+
+	// ============================================================================
+	// PHASE 2: Register ALL contracts in Controller with PLACEHOLDER addresses
+	// This allows original contracts to be deployed (they read from Controller)
+	// ============================================================================
+	zlog.Info("Phase 2: Registering contracts in Controller")
+
+	// Load Controller ABI for setContractProxy calls
+	controllerABI, err := loadABI("MockController")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading Controller ABI: %w", err)
+	}
+
+	// We need placeholder addresses for GraphPayments and PaymentsEscrow
+	// Use deployer address as placeholder - will be overwritten
+	placeholderAddr := deployerAddr
+
+	// Register all GraphDirectory dependencies
+	registrations := []struct {
+		name string
+		addr eth.Address
+	}{
+		{"GraphToken", grtAddr},
+		{"Staking", stakingAddr},
+		{"HorizonStaking", stakingAddr},
+		{"EpochManager", epochManagerAddr},
+		{"RewardsManager", rewardsManagerAddr},
+		{"GraphTokenGateway", tokenGatewayAddr},
+		{"GraphProxyAdmin", proxyAdminAddr},
+		{"Curation", curationAddr},
+		{"GraphPayments", placeholderAddr},  // Placeholder - will be overwritten
+		{"PaymentsEscrow", placeholderAddr}, // Placeholder - will be overwritten
+	}
+
+	for _, reg := range registrations {
+		if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainID, controllerAddr, reg.name, reg.addr, controllerABI); err != nil {
+			anvilContainer.Terminate(ctx)
+			cancel()
+			return nil, fmt.Errorf("registering %s in controller: %w", reg.name, err)
+		}
+		zlog.Debug("registered contract in Controller", zap.String("name", reg.name), zap.Stringer("address", reg.addr))
+	}
+
+	// ============================================================================
+	// PHASE 3: Deploy ORIGINAL GraphPayments contract
+	// ============================================================================
+	zlog.Info("Phase 3: Deploying original GraphPayments")
+
+	graphPaymentsArtifact, err := loadContractArtifact("GraphPayments")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading GraphPayments artifact: %w", err)
+	}
+	// GraphPayments constructor: (address controller, uint256 protocolPaymentCut)
+	// Protocol cut in PPM (parts per million): 10000 = 1%
+	protocolCut := big.NewInt(10000) // 1% protocol cut
+	graphPaymentsArgs, err := encodeConstructorArgs([]interface{}{controllerAddr, protocolCut})
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("encoding GraphPayments args: %w", err)
+	}
+	graphPaymentsAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, graphPaymentsArtifact, graphPaymentsArgs)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying GraphPayments: %w", err)
+	}
+	zlog.Info("ORIGINAL GraphPayments deployed", zap.Stringer("address", graphPaymentsAddr))
+
+	// NOTE: We don't call initialize() because:
+	// 1. The constructor calls _disableInitializers() (designed for proxy patterns)
+	// 2. We don't need Multicall functionality for our tests
+	// 3. The contract works correctly without initialization
+
+	// Update Controller with real GraphPayments address
+	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainID, controllerAddr, "GraphPayments", graphPaymentsAddr, controllerABI); err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("updating GraphPayments in controller: %w", err)
+	}
+	zlog.Debug("updated GraphPayments address in Controller")
+
+	// ============================================================================
+	// PHASE 4: Deploy ORIGINAL PaymentsEscrow contract
+	// ============================================================================
+	zlog.Info("Phase 4: Deploying original PaymentsEscrow")
+
+	escrowArtifact, err := loadContractArtifact("PaymentsEscrow")
+	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("loading PaymentsEscrow artifact: %w", err)
 	}
-	// PaymentsEscrow constructor takes GRT token address
-	escrowArgs, err := encodeConstructorArgs([]interface{}{grtAddr})
+	// PaymentsEscrow constructor: (address controller, uint256 withdrawEscrowThawingPeriod)
+	// Thawing period in seconds: 0 for testing (no wait)
+	thawingPeriod := big.NewInt(0)
+	escrowArgs, err := encodeConstructorArgs([]interface{}{controllerAddr, thawingPeriod})
 	if err != nil {
-		zlog.Error("failed to encode escrow args", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
-		return nil, fmt.Errorf("encoding escrow args: %w", err)
+		return nil, fmt.Errorf("encoding PaymentsEscrow args: %w", err)
 	}
-	zlog.Debug("deploying PaymentsEscrow contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	escrowAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), escrowArtifact, escrowArgs)
+	escrowAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, escrowArtifact, escrowArgs)
 	if err != nil {
-		zlog.Error("failed to deploy PaymentsEscrow", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("deploying PaymentsEscrow: %w", err)
 	}
-	zlog.Info("PaymentsEscrow deployed", zap.Stringer("escrow_address", escrowAddr))
+	zlog.Info("ORIGINAL PaymentsEscrow deployed", zap.Stringer("address", escrowAddr))
 
-	// 5. Register contracts in Controller
-	// GraphDirectory (used by DataService) expects: "GraphToken", "Staking", "GraphPayments", "PaymentsEscrow"
-	// GraphDirectoryMock (used by GraphTallyCollectorFull) expects: "GraphToken", "HorizonStaking", "PaymentsEscrow"
-	// Register both names for compatibility
-	zlog.Debug("registering contracts in Controller")
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "GraphToken", grtAddr); err != nil {
-		zlog.Error("failed to register GRT in controller", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("registering GRT in controller: %w", err)
-	}
-	zlog.Debug("registered GraphToken in Controller")
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "Staking", stakingAddr); err != nil {
-		zlog.Error("failed to register Staking in controller", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("registering Staking in controller: %w", err)
-	}
-	zlog.Debug("registered Staking in Controller")
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "HorizonStaking", stakingAddr); err != nil {
-		zlog.Error("failed to register HorizonStaking in controller", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("registering HorizonStaking in controller: %w", err)
-	}
-	zlog.Debug("registered HorizonStaking in Controller")
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "PaymentsEscrow", escrowAddr); err != nil {
-		zlog.Error("failed to register Escrow in controller", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("registering Escrow in controller: %w", err)
-	}
-	zlog.Debug("registered PaymentsEscrow in Controller")
+	// NOTE: We don't call initialize() because:
+	// 1. The constructor calls _disableInitializers() (designed for proxy patterns)
+	// 2. We don't need Multicall functionality for our tests
+	// 3. The contract works correctly without initialization
 
-	// Deploy MockGraphPayments (needed by GraphDirectory)
-	zlog.Debug("loading MockGraphPayments artifact")
-	graphPaymentsArtifact, err := loadContractArtifact("MockGraphPayments")
+	// Update Controller with real PaymentsEscrow address
+	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainID, controllerAddr, "PaymentsEscrow", escrowAddr, controllerABI); err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("updating PaymentsEscrow in controller: %w", err)
+	}
+	zlog.Debug("updated PaymentsEscrow address in Controller")
+
+	// ============================================================================
+	// PHASE 5: Deploy ORIGINAL GraphTallyCollector
+	// ============================================================================
+	zlog.Info("Phase 5: Deploying original GraphTallyCollector")
+
+	collectorArtifact, err := loadContractArtifact("GraphTallyCollector")
 	if err != nil {
-		zlog.Error("failed to load MockGraphPayments artifact", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("loading MockGraphPayments artifact: %w", err)
-	}
-	zlog.Debug("deploying MockGraphPayments contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	graphPaymentsAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), graphPaymentsArtifact, nil)
-	if err != nil {
-		zlog.Error("failed to deploy MockGraphPayments", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("deploying MockGraphPayments: %w", err)
-	}
-	zlog.Info("MockGraphPayments deployed", zap.Stringer("graph_payments_address", graphPaymentsAddr))
-
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "GraphPayments", graphPaymentsAddr); err != nil {
-		zlog.Error("failed to register GraphPayments in controller", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("registering GraphPayments in controller: %w", err)
-	}
-	zlog.Debug("registered GraphPayments in Controller")
-
-	// Deploy MockEpochManager (needed by GraphDirectory)
-	zlog.Debug("loading MockEpochManager artifact")
-	epochManagerArtifact, err := loadContractArtifact("MockEpochManager")
-	if err != nil {
-		zlog.Error("failed to load MockEpochManager artifact", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("loading MockEpochManager artifact: %w", err)
-	}
-	zlog.Debug("deploying MockEpochManager contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	epochManagerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), epochManagerArtifact, nil)
-	if err != nil {
-		zlog.Error("failed to deploy MockEpochManager", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("deploying MockEpochManager: %w", err)
-	}
-	zlog.Info("MockEpochManager deployed", zap.Stringer("epoch_manager_address", epochManagerAddr))
-
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), controllerAddr, "EpochManager", epochManagerAddr); err != nil {
-		zlog.Error("failed to register EpochManager in controller", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("registering EpochManager in controller: %w", err)
-	}
-	zlog.Debug("registered EpochManager in Controller")
-
-	// 6. Deploy GraphTallyCollectorFull
-	zlog.Debug("loading GraphTallyCollectorFull artifact")
-	collectorArtifact, err := loadContractArtifact("GraphTallyCollectorFull")
-	if err != nil {
-		zlog.Error("failed to load Collector artifact", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("loading Collector artifact: %w", err)
@@ -445,43 +545,45 @@ func setupEnv() (*TestEnv, error) {
 	// Constructor: (string eip712Name, string eip712Version, address controller, uint256 revokeSignerThawingPeriod)
 	collectorArgs, err := encodeCollectorConstructorArgs("GraphTallyCollector", "1", controllerAddr, uint64(0))
 	if err != nil {
-		zlog.Error("failed to encode collector args", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("encoding collector args: %w", err)
 	}
-	zlog.Debug("deploying GraphTallyCollectorFull contract", zap.Uint64("chain_id", chainIDInt.Uint64()))
-	collectorAddr, err := deployContract(ctx, rpcURL, deployerKey, chainIDInt.Uint64(), collectorArtifact, collectorArgs)
+	collectorAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, collectorArtifact, collectorArgs)
 	if err != nil {
-		zlog.Error("failed to deploy Collector", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("deploying Collector: %w", err)
 	}
-	zlog.Info("GraphTallyCollectorFull deployed", zap.Stringer("collector_address", collectorAddr))
+	zlog.Info("ORIGINAL GraphTallyCollector deployed", zap.Stringer("address", collectorAddr))
 
-	// 7. Deploy SubstreamsDataService
-	// TODO: SubstreamsDataService deployment is currently disabled because it requires
-	// additional GraphDirectory dependencies (TokenGateway, ProxyAdmin, etc.) that are
-	// complex to set up in the test environment. For now, tests will continue using
-	// DataServiceKey (EOA) to call GraphTallyCollector directly.
-	// This will be enabled in a future phase after proper mocking of all dependencies.
-	var dataServiceContractAddr eth.Address // zero address for now
+	// SubstreamsDataService deployment disabled for now
+	var dataServiceContractAddr eth.Address
 	zlog.Info("SubstreamsDataService deployment temporarily disabled - using DataServiceKey (EOA) instead")
 
-	fmt.Printf("Test environment ready:\n")
+	fmt.Printf("\n")
+	fmt.Printf("============================================================\n")
+	fmt.Printf("Test environment ready - using ORIGINAL Graph Protocol contracts\n")
+	fmt.Printf("============================================================\n")
 	fmt.Printf("  RPC URL: %s\n", rpcURL)
-	fmt.Printf("  Chain ID: %d\n", chainIDInt.Uint64())
+	fmt.Printf("  Chain ID: %d\n", chainID)
 	fmt.Printf("  Deployer: %s\n", deployerAddr.Pretty())
-	fmt.Printf("  GRT Token: %s\n", grtAddr.Pretty())
-	fmt.Printf("  Controller: %s\n", controllerAddr.Pretty())
-	fmt.Printf("  Staking: %s\n", stakingAddr.Pretty())
+	fmt.Printf("\n")
+	fmt.Printf("ORIGINAL CONTRACTS (from horizon-contracts):\n")
+	fmt.Printf("  GraphPayments: %s\n", graphPaymentsAddr.Pretty())
 	fmt.Printf("  PaymentsEscrow: %s\n", escrowAddr.Pretty())
-	fmt.Printf("  Collector: %s\n", collectorAddr.Pretty())
-	fmt.Printf("  SubstreamsDataService: %s\n", dataServiceContractAddr.Pretty())
+	fmt.Printf("  GraphTallyCollector: %s\n", collectorAddr.Pretty())
+	fmt.Printf("\n")
+	fmt.Printf("MOCK CONTRACTS (test infrastructure):\n")
+	fmt.Printf("  MockGRTToken: %s\n", grtAddr.Pretty())
+	fmt.Printf("  MockController: %s\n", controllerAddr.Pretty())
+	fmt.Printf("  MockStaking: %s\n", stakingAddr.Pretty())
+	fmt.Printf("\n")
+	fmt.Printf("TEST ACCOUNTS:\n")
 	fmt.Printf("  Service Provider: %s\n", serviceProviderAddr.Pretty())
 	fmt.Printf("  Payer: %s\n", payerAddr.Pretty())
 	fmt.Printf("  Data Service Key (deprecated): %s\n", dataServiceAddr.Pretty())
+	fmt.Printf("============================================================\n")
 
 	// Load all ABIs for contract interactions
 	abis, err := loadAllABIs()
@@ -498,11 +600,12 @@ func setupEnv() (*TestEnv, error) {
 		cancel:                cancel,
 		anvilContainer:        anvilContainer,
 		rpcURL:                rpcURL,
-		ChainID:               chainIDInt.Uint64(),
+		ChainID:               chainID,
 		GRTToken:              grtAddr,
 		Controller:            controllerAddr,
 		Staking:               stakingAddr,
 		PaymentsEscrow:        escrowAddr,
+		GraphPayments:         graphPaymentsAddr,
 		CollectorAddress:      collectorAddr,
 		SubstreamsDataService: dataServiceContractAddr,
 		DeployerKey:           deployerKey,
@@ -553,12 +656,14 @@ func loadAllABIs() (*ABIs, error) {
 		return nil, fmt.Errorf("loading Staking ABI: %w", err)
 	}
 
-	escrowABI, err := loadABI("MockPaymentsEscrow")
+	// Use ORIGINAL PaymentsEscrow ABI (not mock)
+	escrowABI, err := loadABI("PaymentsEscrow")
 	if err != nil {
-		return nil, fmt.Errorf("loading Escrow ABI: %w", err)
+		return nil, fmt.Errorf("loading PaymentsEscrow ABI: %w", err)
 	}
 
-	collectorABI, err := loadABI("GraphTallyCollectorFull")
+	// Use ORIGINAL GraphTallyCollector ABI (not mock)
+	collectorABI, err := loadABI("GraphTallyCollector")
 	if err != nil {
 		return nil, fmt.Errorf("loading Collector ABI: %w", err)
 	}
@@ -568,12 +673,18 @@ func loadAllABIs() (*ABIs, error) {
 		return nil, fmt.Errorf("loading SubstreamsDataService ABI: %w", err)
 	}
 
+	controllerABI, err := loadABI("MockController")
+	if err != nil {
+		return nil, fmt.Errorf("loading Controller ABI: %w", err)
+	}
+
 	return &ABIs{
 		GRTToken:    grtABI,
 		Staking:     stakingABI,
 		Escrow:      escrowABI,
 		Collector:   collectorABI,
 		DataService: dataServiceABI,
+		Controller:  controllerABI,
 	}, nil
 }
 
@@ -621,7 +732,7 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 
 	// Create raw transaction for contract deployment
 	// Gas limit estimate for contract deployment
-	gasLimit := uint64(3000000)
+	gasLimit := uint64(5000000) // Increased for larger original contracts
 
 	bytecodeBytes, err := hex.DecodeString(bytecode)
 	if err != nil {
@@ -1049,33 +1160,36 @@ func encodeCollectorConstructorArgs(name, version string, controller eth.Address
 }
 
 // callSetContractProxy calls Controller.setContractProxy(bytes32 id, address contractAddress)
-func callSetContractProxy(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, controllerAddr eth.Address, name string, contractAddr eth.Address) error {
-	// Function selector: setContractProxy(bytes32,address) = 0xe0e99292
-	selector, _ := hex.DecodeString("e0e99292")
+func callSetContractProxy(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, controllerAddr eth.Address, name string, contractAddr eth.Address, controllerABI *eth.ABI) error {
+	setContractProxyFn := controllerABI.FindFunctionByName("setContractProxy")
+	if setContractProxyFn == nil {
+		return fmt.Errorf("setContractProxy function not found in ABI")
+	}
 
-	// Encode: keccak256(name) + padded address
+	// The id parameter is keccak256(name) - eth-go expects []byte for bytes32
 	nameHash := eth.Keccak256([]byte(name))
-	data := make([]byte, 4+32+32)
-	copy(data[0:4], selector)
-	copy(data[4:36], nameHash)
-	copy(data[36+12:68], contractAddr[:])
+
+	data, err := setContractProxyFn.NewCall(nameHash, contractAddr).Encode()
+	if err != nil {
+		return fmt.Errorf("encoding setContractProxy call: %w", err)
+	}
 
 	return sendTransaction(ctx, rpcURL, key, chainID, &controllerAddr, big.NewInt(0), data)
 }
 
-// callInitializeDataService calls SubstreamsDataService.initialize(address owner, uint256 minimumProvisionTokens)
-func callInitializeDataService(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, dataServiceAddr eth.Address, owner eth.Address, minProvisionTokens *big.Int) error {
-	// Function selector: initialize(address,uint256) = 0x485cc955
-	selector, _ := hex.DecodeString("485cc955")
+// callSetGraphToken calls MockStaking.setGraphToken(address token)
+func callSetGraphToken(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, stakingAddr eth.Address, tokenAddr eth.Address, stakingABI *eth.ABI) error {
+	setGraphTokenFn := stakingABI.FindFunctionByName("setGraphToken")
+	if setGraphTokenFn == nil {
+		return fmt.Errorf("setGraphToken function not found in ABI")
+	}
 
-	// Encode: padded owner address + padded minProvisionTokens
-	data := make([]byte, 4+32+32)
-	copy(data[0:4], selector)
-	copy(data[4+12:36], owner[:])
-	minTokensBytes := minProvisionTokens.Bytes()
-	copy(data[36+32-len(minTokensBytes):68], minTokensBytes)
+	data, err := setGraphTokenFn.NewCall(tokenAddr).Encode()
+	if err != nil {
+		return fmt.Errorf("encoding setGraphToken call: %w", err)
+	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &dataServiceAddr, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcURL, key, chainID, &stakingAddr, big.NewInt(0), data)
 }
 
 // sendTransaction sends a transaction and waits for receipt
