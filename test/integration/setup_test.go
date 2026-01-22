@@ -23,6 +23,24 @@ import (
 	"go.uber.org/zap"
 )
 
+// Account represents an Ethereum account with its private key and address
+type Account struct {
+	Address    eth.Address
+	PrivateKey *eth.PrivateKey
+}
+
+// mustNewAccount creates a new random account or panics on failure
+func mustNewAccount() Account {
+	key, err := eth.NewRandomPrivateKey()
+	if err != nil {
+		panic(fmt.Sprintf("generating random private key: %v", err))
+	}
+	return Account{
+		Address:    key.PublicKey().Address(),
+		PrivateKey: key,
+	}
+}
+
 // ContractArtifact represents a compiled Foundry contract
 type ContractArtifact struct {
 	ABI      json.RawMessage `json:"abi"`
@@ -46,7 +64,6 @@ type TestEnv struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	anvilContainer        testcontainers.Container
-	rpcURL                string
 	rpcClient             *rpc.Client
 	ChainID               uint64
 	GRTToken              eth.Address
@@ -56,12 +73,9 @@ type TestEnv struct {
 	GraphPayments         eth.Address
 	CollectorAddress      eth.Address
 	SubstreamsDataService eth.Address
-	DeployerKey           *eth.PrivateKey
-	DeployerAddress       eth.Address
-	ServiceProviderKey    *eth.PrivateKey
-	ServiceProviderAddr   eth.Address
-	PayerKey              *eth.PrivateKey
-	PayerAddr             eth.Address
+	Deployer              Account
+	ServiceProvider       Account
+	Payer                 Account
 	// ABIs for contract interactions
 	ABIs *ABIs
 }
@@ -171,43 +185,22 @@ func setupEnv() (*TestEnv, error) {
 	devAccount := eth.MustNewAddress(accounts[0])
 	zlog.Info("dev account retrieved", zap.Stringer("dev_account", devAccount))
 
-	// Create test keys
-	zlog.Debug("generating test keys")
-	deployerKey, err := eth.NewRandomPrivateKey()
-	if err != nil {
-		zlog.Error("failed to generate deployer key", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("generating deployer key: %w", err)
-	}
-	deployerAddr := deployerKey.PublicKey().Address()
-	zlog.Debug("generated deployer key", zap.Stringer("deployer_address", deployerAddr))
-
-	serviceProviderKey, err := eth.NewRandomPrivateKey()
-	if err != nil {
-		zlog.Error("failed to generate service provider key", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("generating service provider key: %w", err)
-	}
-	serviceProviderAddr := serviceProviderKey.PublicKey().Address()
-	zlog.Debug("generated service provider key", zap.Stringer("service_provider_address", serviceProviderAddr))
-
-	payerKey, err := eth.NewRandomPrivateKey()
-	if err != nil {
-		zlog.Error("failed to generate payer key", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("generating payer key: %w", err)
-	}
-	payerAddr := payerKey.PublicKey().Address()
-	zlog.Debug("generated payer key", zap.Stringer("payer_address", payerAddr))
+	// Create test accounts
+	zlog.Debug("generating test accounts")
+	deployer := mustNewAccount()
+	serviceProvider := mustNewAccount()
+	payer := mustNewAccount()
+	zlog.Debug("generated test accounts",
+		zap.Stringer("deployer", deployer.Address),
+		zap.Stringer("service_provider", serviceProvider.Address),
+		zap.Stringer("payer", payer.Address),
+	)
 
 	// Fund deployer from dev account (10 ETH)
 	zlog.Debug("funding deployer account")
 	fundAmount := new(big.Int)
 	fundAmount.SetString("10000000000000000000", 10) // 10 ETH
-	if err := fundFromDevAccount(ctx, rpcClient, devAccount, deployerAddr, fundAmount); err != nil {
+	if err := fundFromDevAccount(ctx, rpcClient, devAccount, deployer.Address, fundAmount); err != nil {
 		zlog.Error("failed to fund deployer", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -219,7 +212,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding payer account")
 	fundAmount2 := new(big.Int)
 	fundAmount2.SetString("5000000000000000000", 10) // 5 ETH
-	if err := fundFromDevAccount(ctx, rpcClient, devAccount, payerAddr, fundAmount2); err != nil {
+	if err := fundFromDevAccount(ctx, rpcClient, devAccount, payer.Address, fundAmount2); err != nil {
 		zlog.Error("failed to fund payer", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -231,7 +224,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding service provider account")
 	fundAmount3 := new(big.Int)
 	fundAmount3.SetString("2000000000000000000", 10) // 2 ETH
-	if err := fundFromDevAccount(ctx, rpcClient, devAccount, serviceProviderAddr, fundAmount3); err != nil {
+	if err := fundFromDevAccount(ctx, rpcClient, devAccount, serviceProvider.Address, fundAmount3); err != nil {
 		zlog.Error("failed to fund service provider", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -256,7 +249,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading GRT artifact: %w", err)
 	}
-	grtAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, grtArtifact, nil)
+	grtAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, grtArtifact, nil)
 	if err != nil {
 		zlog.Error("failed to deploy GRT token", zap.Error(err))
 		anvilContainer.Terminate(ctx)
@@ -272,13 +265,13 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading Controller artifact: %w", err)
 	}
-	controllerArgs, err := encodeConstructorArgs([]interface{}{deployerAddr})
+	controllerArgs, err := encodeConstructorArgs([]interface{}{deployer.Address})
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("encoding controller args: %w", err)
 	}
-	controllerAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, controllerArtifact, controllerArgs)
+	controllerAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, controllerArtifact, controllerArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -293,7 +286,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading Staking artifact: %w", err)
 	}
-	stakingAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, stakingArtifact, nil)
+	stakingAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, stakingArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -310,7 +303,7 @@ func setupEnv() (*TestEnv, error) {
 	}
 
 	// Set GRT token in MockStaking (needed for addToDelegationPool and stakeTo)
-	if err := callSetGraphToken(ctx, rpcClient, deployerKey, chainID, stakingAddr, grtAddr, stakingABI); err != nil {
+	if err := callSetGraphToken(ctx, rpcClient, deployer.PrivateKey, chainID, stakingAddr, grtAddr, stakingABI); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("setting GRT token in staking: %w", err)
@@ -324,7 +317,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading EpochManager artifact: %w", err)
 	}
-	epochManagerAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, epochManagerArtifact, nil)
+	epochManagerAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, epochManagerArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -339,7 +332,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading RewardsManager artifact: %w", err)
 	}
-	rewardsManagerAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, rewardsManagerArtifact, nil)
+	rewardsManagerAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, rewardsManagerArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -354,7 +347,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading TokenGateway artifact: %w", err)
 	}
-	tokenGatewayAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, tokenGatewayArtifact, nil)
+	tokenGatewayAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, tokenGatewayArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -369,7 +362,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading ProxyAdmin artifact: %w", err)
 	}
-	proxyAdminAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, proxyAdminArtifact, nil)
+	proxyAdminAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, proxyAdminArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -384,7 +377,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading Curation artifact: %w", err)
 	}
-	curationAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, curationArtifact, nil)
+	curationAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, curationArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -408,7 +401,7 @@ func setupEnv() (*TestEnv, error) {
 
 	// We need placeholder addresses for GraphPayments and PaymentsEscrow
 	// Use deployer address as placeholder - will be overwritten
-	placeholderAddr := deployerAddr
+	placeholderAddr := deployer.Address
 
 	// Register all GraphDirectory dependencies
 	registrations := []struct {
@@ -428,7 +421,7 @@ func setupEnv() (*TestEnv, error) {
 	}
 
 	for _, reg := range registrations {
-		if err := callSetContractProxy(ctx, rpcClient, deployerKey, chainID, controllerAddr, reg.name, reg.addr, controllerABI); err != nil {
+		if err := callSetContractProxy(ctx, rpcClient, deployer.PrivateKey, chainID, controllerAddr, reg.name, reg.addr, controllerABI); err != nil {
 			anvilContainer.Terminate(ctx)
 			cancel()
 			return nil, fmt.Errorf("registering %s in controller: %w", reg.name, err)
@@ -456,7 +449,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding GraphPayments args: %w", err)
 	}
-	graphPaymentsAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, graphPaymentsArtifact, graphPaymentsArgs)
+	graphPaymentsAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, graphPaymentsArtifact, graphPaymentsArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -470,7 +463,7 @@ func setupEnv() (*TestEnv, error) {
 	// 3. The contract works correctly without initialization
 
 	// Update Controller with real GraphPayments address
-	if err := callSetContractProxy(ctx, rpcClient, deployerKey, chainID, controllerAddr, "GraphPayments", graphPaymentsAddr, controllerABI); err != nil {
+	if err := callSetContractProxy(ctx, rpcClient, deployer.PrivateKey, chainID, controllerAddr, "GraphPayments", graphPaymentsAddr, controllerABI); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("updating GraphPayments in controller: %w", err)
@@ -497,7 +490,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding PaymentsEscrow args: %w", err)
 	}
-	escrowAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, escrowArtifact, escrowArgs)
+	escrowAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, escrowArtifact, escrowArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -511,7 +504,7 @@ func setupEnv() (*TestEnv, error) {
 	// 3. The contract works correctly without initialization
 
 	// Update Controller with real PaymentsEscrow address
-	if err := callSetContractProxy(ctx, rpcClient, deployerKey, chainID, controllerAddr, "PaymentsEscrow", escrowAddr, controllerABI); err != nil {
+	if err := callSetContractProxy(ctx, rpcClient, deployer.PrivateKey, chainID, controllerAddr, "PaymentsEscrow", escrowAddr, controllerABI); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("updating PaymentsEscrow in controller: %w", err)
@@ -536,7 +529,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding collector args: %w", err)
 	}
-	collectorAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, collectorArtifact, collectorArgs)
+	collectorAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, collectorArtifact, collectorArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -562,7 +555,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding SubstreamsDataService args: %w", err)
 	}
-	dataServiceContractAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, dataServiceArtifact, dataServiceArgs)
+	dataServiceContractAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, dataServiceArtifact, dataServiceArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -576,7 +569,7 @@ func setupEnv() (*TestEnv, error) {
 	fmt.Printf("============================================================\n")
 	fmt.Printf("  RPC URL: %s\n", rpcURL)
 	fmt.Printf("  Chain ID: %d\n", chainID)
-	fmt.Printf("  Deployer: %s\n", deployerAddr.Pretty())
+	fmt.Printf("  Deployer: %s\n", deployer.Address.Pretty())
 	fmt.Printf("\n")
 	fmt.Printf("ORIGINAL CONTRACTS (from horizon-contracts):\n")
 	fmt.Printf("  GraphPayments: %s\n", graphPaymentsAddr.Pretty())
@@ -590,8 +583,8 @@ func setupEnv() (*TestEnv, error) {
 	fmt.Printf("  MockStaking: %s\n", stakingAddr.Pretty())
 	fmt.Printf("\n")
 	fmt.Printf("TEST ACCOUNTS:\n")
-	fmt.Printf("  Service Provider: %s\n", serviceProviderAddr.Pretty())
-	fmt.Printf("  Payer: %s\n", payerAddr.Pretty())
+	fmt.Printf("  Service Provider: %s\n", serviceProvider.Address.Pretty())
+	fmt.Printf("  Payer: %s\n", payer.Address.Pretty())
 	fmt.Printf("============================================================\n")
 
 	// Load all ABIs for contract interactions
@@ -608,7 +601,6 @@ func setupEnv() (*TestEnv, error) {
 		ctx:                   ctx,
 		cancel:                cancel,
 		anvilContainer:        anvilContainer,
-		rpcURL:                rpcURL,
 		rpcClient:             rpcClient,
 		ChainID:               chainID,
 		GRTToken:              grtAddr,
@@ -618,12 +610,9 @@ func setupEnv() (*TestEnv, error) {
 		GraphPayments:         graphPaymentsAddr,
 		CollectorAddress:      collectorAddr,
 		SubstreamsDataService: dataServiceContractAddr,
-		DeployerKey:           deployerKey,
-		DeployerAddress:       deployerAddr,
-		ServiceProviderKey:    serviceProviderKey,
-		ServiceProviderAddr:   serviceProviderAddr,
-		PayerKey:              payerKey,
-		PayerAddr:             payerAddr,
+		Deployer:              deployer,
+		ServiceProvider:       serviceProvider,
+		Payer:                 payer,
 		ABIs:                  abis,
 	}, nil
 }

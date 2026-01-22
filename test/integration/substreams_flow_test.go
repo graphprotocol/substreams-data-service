@@ -491,7 +491,7 @@ func (p *Provider) EndSession() {
 }
 
 // CollectFinalRAV collects the final RAV on-chain via SubstreamsDataService
-func (psc *ProviderSidecar) CollectFinalRAV(env *TestEnv, dataServiceAddr eth.Address, serviceProviderKey *eth.PrivateKey, dataServiceCut uint64) (uint64, error) {
+func (psc *ProviderSidecar) CollectFinalRAV(env *TestEnv, dataServiceCut uint64) (uint64, error) {
 	if psc.currentRAV == nil {
 		return 0, nil
 	}
@@ -501,17 +501,7 @@ func (psc *ProviderSidecar) CollectFinalRAV(env *TestEnv, dataServiceAddr eth.Ad
 		zap.String("value", psc.currentRAV.Message.ValueAggregate.String()))
 
 	// Call collect() via SubstreamsDataService
-	tokensCollected, err := callDataServiceCollect(
-		env.ctx,
-		env.rpcClient,
-		serviceProviderKey,
-		env.ChainID,
-		dataServiceAddr,
-		serviceProviderKey.PublicKey().Address(),
-		psc.currentRAV,
-		dataServiceCut,
-		env,
-	)
+	tokensCollected, err := callDataServiceCollect(env, psc.currentRAV, dataServiceCut)
 	if err != nil {
 		return 0, err
 	}
@@ -534,29 +524,29 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
 	// Mint GRT to payer
-	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
 	require.NoError(t, err, "Failed to mint GRT")
 
 	// Approve escrow to spend GRT
-	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env, tokensToDeposit)
 	require.NoError(t, err, "Failed to approve GRT")
 
 	// Deposit to escrow
-	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env, tokensToDeposit)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env, big.NewInt(0))
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	// Set provision for service provider
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
+	err = callSetProvision(env, provisionTokens, 0, 0)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create signer key and authorize it
@@ -564,7 +554,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env, signerKey)
 	require.NoError(t, err, "Failed to authorize signer")
 
 	// ============================================================================
@@ -581,8 +571,8 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		"ConsumerSidecar",
 		domain,
 		signerKey,
-		env.PayerAddr,
-		env.ServiceProviderAddr,
+		env.Payer.Address,
+		env.ServiceProvider.Address,
 		env.SubstreamsDataService,
 		collectionID,
 	)
@@ -595,8 +585,8 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		collectionID,
 		tokensToDeposit, // Escrow balance for checking
 		env,
-		env.PayerAddr,
-		env.ServiceProviderKey,
+		env.Payer.Address,
+		env.ServiceProvider.PrivateKey,
 	)
 
 	// Substreams Client (ss)
@@ -607,9 +597,9 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		"BlockProvider",
 		providerSidecar,
 		env.SubstreamsDataService,
-		env.ServiceProviderKey,
+		env.ServiceProvider.PrivateKey,
 		env.CollectorAddress,
-		env.ServiceProviderAddr,
+		env.ServiceProvider.Address,
 	)
 
 	// ============================================================================
@@ -725,12 +715,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	// ============================================================================
 
 	zlog.Info("Final: Collecting RAV on-chain via SubstreamsDataService")
-	tokensCollected, err := providerSidecar.CollectFinalRAV(
-		env,
-		provider.dataServiceAddr,
-		provider.serviceProviderKey,
-		provider.dataServiceCut,
-	)
+	tokensCollected, err := providerSidecar.CollectFinalRAV(env, provider.dataServiceCut)
 	require.NoError(t, err)
 
 	// Verify collection amount
@@ -738,7 +723,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		"Tokens collected should match RAV value")
 
 	// Verify on-chain state
-	collected, err := env.CallTokensCollected(env.SubstreamsDataService, collectionID, env.ServiceProviderAddr, env.PayerAddr)
+	collected, err := env.CallTokensCollected(env.SubstreamsDataService, collectionID, env.ServiceProvider.Address, env.Payer.Address)
 	require.NoError(t, err)
 	assert.Equal(t, expectedValue.Uint64(), collected,
 		"On-chain tokensCollected should match expected value")
@@ -760,27 +745,27 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	smallEscrow := big.NewInt(50000000000000000) // 0.05 GRT - very small
 
 	// Mint and deposit small amount
-	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, smallEscrow, env.ABIs.GRTToken)
+	err := callMintGRT(env, env.Payer.Address, smallEscrow)
 	require.NoError(t, err)
 
-	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, smallEscrow, env.ABIs.GRTToken)
+	err = callApproveGRT(env, smallEscrow)
 	require.NoError(t, err)
 
-	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, smallEscrow, env.ABIs.Escrow)
+	err = callDepositEscrow(env, smallEscrow)
 	require.NoError(t, err)
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env, big.NewInt(0))
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	// Setup provision
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10)
-	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
+	err = callSetProvision(env, provisionTokens, 0, 0)
 	require.NoError(t, err)
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create and authorize signer
@@ -788,7 +773,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env, signerKey)
 	require.NoError(t, err)
 
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
@@ -801,8 +786,8 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		"ConsumerSidecar",
 		domain,
 		signerKey,
-		env.PayerAddr,
-		env.ServiceProviderAddr,
+		env.Payer.Address,
+		env.ServiceProvider.Address,
 		env.SubstreamsDataService,
 		collectionID,
 	)
@@ -814,8 +799,8 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		collectionID,
 		smallEscrow, // Small escrow
 		env,
-		env.PayerAddr,
-		env.ServiceProviderKey,
+		env.Payer.Address,
+		env.ServiceProvider.PrivateKey,
 	)
 
 	substreamsClient := NewSubstreamsClient("SubstreamsClient", consumerSidecar)
@@ -824,9 +809,9 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		"BlockProvider",
 		providerSidecar,
 		env.SubstreamsDataService,
-		env.ServiceProviderKey,
+		env.ServiceProvider.PrivateKey,
 		env.CollectorAddress,
-		env.ServiceProviderAddr,
+		env.ServiceProvider.Address,
 	)
 
 	// Start session
@@ -887,33 +872,33 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	tokensToDeposit := new(big.Int)
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
-	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
 	require.NoError(t, err)
 
-	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env, tokensToDeposit)
 	require.NoError(t, err)
 
-	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env, tokensToDeposit)
 	require.NoError(t, err)
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env, big.NewInt(0))
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10)
-	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
+	err = callSetProvision(env, provisionTokens, 0, 0)
 	require.NoError(t, err)
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env)
 	require.NoError(t, err, "Failed to register with data service")
 
 	signerKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env, signerKey)
 	require.NoError(t, err)
 
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
@@ -926,8 +911,8 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		"ConsumerSidecar",
 		domain,
 		signerKey,
-		env.PayerAddr,
-		env.ServiceProviderAddr,
+		env.Payer.Address,
+		env.ServiceProvider.Address,
 		env.SubstreamsDataService,
 		collectionID,
 	)
@@ -939,8 +924,8 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		collectionID,
 		tokensToDeposit,
 		env,
-		env.PayerAddr,
-		env.ServiceProviderKey,
+		env.Payer.Address,
+		env.ServiceProvider.PrivateKey,
 	)
 
 	substreamsClient := NewSubstreamsClient("SubstreamsClient", consumerSidecar)
@@ -949,9 +934,9 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		"BlockProvider",
 		providerSidecar,
 		env.SubstreamsDataService,
-		env.ServiceProviderKey,
+		env.ServiceProvider.PrivateKey,
 		env.CollectorAddress,
-		env.ServiceProviderAddr,
+		env.ServiceProvider.Address,
 	)
 
 	// Initialize session
@@ -1009,12 +994,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	provider.EndSession()
 
 	// Collect final RAV on-chain via SubstreamsDataService
-	tokensCollected, err := providerSidecar.CollectFinalRAV(
-		env,
-		provider.dataServiceAddr,
-		provider.serviceProviderKey,
-		provider.dataServiceCut,
-	)
+	tokensCollected, err := providerSidecar.CollectFinalRAV(env, provider.dataServiceCut)
 	require.NoError(t, err)
 
 	// Verify final collection
