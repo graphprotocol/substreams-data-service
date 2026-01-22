@@ -61,9 +61,6 @@ type TestEnv struct {
 	ServiceProviderAddr   eth.Address
 	PayerKey              *eth.PrivateKey
 	PayerAddr             eth.Address
-	DataServiceKey        *eth.PrivateKey // Deprecated - use SubstreamsDataService contract instead
-	DataServiceAddr       eth.Address     // Deprecated - use SubstreamsDataService contract instead
-
 	// ABIs for contract interactions
 	ABIs *ABIs
 }
@@ -206,16 +203,6 @@ func setupEnv() (*TestEnv, error) {
 	payerAddr := payerKey.PublicKey().Address()
 	zlog.Debug("generated payer key", zap.Stringer("payer_address", payerAddr))
 
-	dataServiceKey, err := eth.NewRandomPrivateKey()
-	if err != nil {
-		zlog.Error("failed to generate data service key", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("generating data service key: %w", err)
-	}
-	dataServiceAddr := dataServiceKey.PublicKey().Address()
-	zlog.Debug("generated data service key", zap.Stringer("data_service_address", dataServiceAddr))
-
 	// Fund deployer from dev account (10 ETH)
 	zlog.Debug("funding deployer account")
 	fundAmount := new(big.Int)
@@ -240,17 +227,17 @@ func setupEnv() (*TestEnv, error) {
 	}
 	zlog.Debug("payer funded successfully", zap.String("amount", "5 ETH"))
 
-	// Fund data service account (2 ETH for gas)
-	zlog.Debug("funding data service account")
+	// Fund service provider account (2 ETH for gas to call SubstreamsDataService)
+	zlog.Debug("funding service provider account")
 	fundAmount3 := new(big.Int)
 	fundAmount3.SetString("2000000000000000000", 10) // 2 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, devAccount, dataServiceAddr, fundAmount3); err != nil {
-		zlog.Error("failed to fund data service", zap.Error(err))
+	if err := fundFromDevAccount(ctx, rpcURL, devAccount, serviceProviderAddr, fundAmount3); err != nil {
+		zlog.Error("failed to fund service provider", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
-		return nil, fmt.Errorf("funding data service: %w", err)
+		return nil, fmt.Errorf("funding service provider: %w", err)
 	}
-	zlog.Debug("data service funded successfully", zap.String("amount", "2 ETH"))
+	zlog.Debug("service provider funded successfully", zap.String("amount", "2 ETH"))
 
 	chainID := chainIDInt.Uint64()
 
@@ -557,9 +544,31 @@ func setupEnv() (*TestEnv, error) {
 	}
 	zlog.Info("ORIGINAL GraphTallyCollector deployed", zap.Stringer("address", collectorAddr))
 
-	// SubstreamsDataService deployment disabled for now
-	var dataServiceContractAddr eth.Address
-	zlog.Info("SubstreamsDataService deployment temporarily disabled - using DataServiceKey (EOA) instead")
+	// ============================================================================
+	// PHASE 6: Deploy SubstreamsDataService contract
+	// ============================================================================
+	zlog.Info("Phase 6: Deploying SubstreamsDataService")
+
+	dataServiceArtifact, err := loadContractArtifact("SubstreamsDataService")
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("loading SubstreamsDataService artifact: %w", err)
+	}
+	// SubstreamsDataService constructor: (address controller, address graphTallyCollector)
+	dataServiceArgs, err := encodeConstructorArgs([]interface{}{controllerAddr, collectorAddr})
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("encoding SubstreamsDataService args: %w", err)
+	}
+	dataServiceContractAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, dataServiceArtifact, dataServiceArgs)
+	if err != nil {
+		anvilContainer.Terminate(ctx)
+		cancel()
+		return nil, fmt.Errorf("deploying SubstreamsDataService: %w", err)
+	}
+	zlog.Info("SubstreamsDataService deployed", zap.Stringer("address", dataServiceContractAddr))
 
 	fmt.Printf("\n")
 	fmt.Printf("============================================================\n")
@@ -573,6 +582,7 @@ func setupEnv() (*TestEnv, error) {
 	fmt.Printf("  GraphPayments: %s\n", graphPaymentsAddr.Pretty())
 	fmt.Printf("  PaymentsEscrow: %s\n", escrowAddr.Pretty())
 	fmt.Printf("  GraphTallyCollector: %s\n", collectorAddr.Pretty())
+	fmt.Printf("  SubstreamsDataService: %s\n", dataServiceContractAddr.Pretty())
 	fmt.Printf("\n")
 	fmt.Printf("MOCK CONTRACTS (test infrastructure):\n")
 	fmt.Printf("  MockGRTToken: %s\n", grtAddr.Pretty())
@@ -582,7 +592,6 @@ func setupEnv() (*TestEnv, error) {
 	fmt.Printf("TEST ACCOUNTS:\n")
 	fmt.Printf("  Service Provider: %s\n", serviceProviderAddr.Pretty())
 	fmt.Printf("  Payer: %s\n", payerAddr.Pretty())
-	fmt.Printf("  Data Service Key (deprecated): %s\n", dataServiceAddr.Pretty())
 	fmt.Printf("============================================================\n")
 
 	// Load all ABIs for contract interactions
@@ -614,8 +623,6 @@ func setupEnv() (*TestEnv, error) {
 		ServiceProviderAddr:   serviceProviderAddr,
 		PayerKey:              payerKey,
 		PayerAddr:             payerAddr,
-		DataServiceKey:        dataServiceKey,
-		DataServiceAddr:       dataServiceAddr,
 		ABIs:                  abis,
 	}, nil
 }

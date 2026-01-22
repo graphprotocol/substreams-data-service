@@ -30,12 +30,20 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
+	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	require.NoError(t, err, "Failed to set provision tokens range")
+
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
+
+	// Register service provider with SubstreamsDataService (using ServiceProviderKey as operator)
+	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	require.NoError(t, err, "Failed to register with data service")
 
 	// Create a signer key (different from payer)
 	zlog.Debug("creating signer key")
@@ -75,7 +83,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 		CollectionID:    collectionID,
 		Payer:           env.PayerAddr, // Payer is different from signer
 		ServiceProvider: env.ServiceProviderAddr,
-		DataService:     env.DataServiceAddr,
+		DataService:     env.SubstreamsDataService,
 		TimestampNs:     uint64(time.Now().UnixNano()),
 		ValueAggregate:  big.NewInt(1000000000000000000), // 1 GRT
 		Metadata:        []byte{},
@@ -93,13 +101,13 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	require.Equal(t, signerAddr, recoveredSigner, "Should recover signer address, not payer")
 	zlog.Debug("verified signature recovery", zap.Stringer("recovered", recoveredSigner), zap.Stringer("expected", signerAddr))
 
-	// Call collect() - should succeed because signer is authorized
+	// Call collect() via SubstreamsDataService - should succeed because signer is authorized
 	dataServiceCut := uint64(100000) // 10% in PPM
-	zlog.Info("calling collect() with authorized signer", zap.Uint64("chain_id", env.ChainID))
-	tokensCollected, err := callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, env)
+	zlog.Info("calling SubstreamsDataService.collect() with authorized signer", zap.Uint64("chain_id", env.ChainID))
+	tokensCollected, err := callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1000000000000000000), tokensCollected)
-	zlog.Info("collect() with authorized signer succeeded")
+	zlog.Info("SubstreamsDataService.collect() with authorized signer succeeded")
 
 	t.Logf("Successfully collected RAV signed by authorized signer")
 }
@@ -122,12 +130,20 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
+	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	require.NoError(t, err, "Failed to set provision tokens range")
+
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
+
+	// Register service provider with SubstreamsDataService
+	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	require.NoError(t, err, "Failed to register with data service")
 
 	// Create an unauthorized signer key
 	zlog.Debug("creating unauthorized signer key")
@@ -153,7 +169,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 		CollectionID:    collectionID,
 		Payer:           env.PayerAddr,
 		ServiceProvider: env.ServiceProviderAddr,
-		DataService:     env.DataServiceAddr,
+		DataService:     env.SubstreamsDataService,
 		TimestampNs:     uint64(time.Now().UnixNano()),
 		ValueAggregate:  big.NewInt(1000000000000000000), // 1 GRT
 		Metadata:        []byte{},
@@ -163,12 +179,12 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	signedRAV, err := horizon.Sign(domain, rav, unauthorizedKey)
 	require.NoError(t, err)
 
-	// Call collect() - should fail
+	// Call collect() via SubstreamsDataService - should fail
 	dataServiceCut := uint64(100000) // 10% in PPM
-	zlog.Info("calling collect() with unauthorized signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
-	_, err = callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, env)
+	zlog.Info("calling SubstreamsDataService.collect() with unauthorized signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
+	_, err = callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.Error(t, err, "Collection should fail with unauthorized signer")
-	zlog.Info("collect() correctly failed with unauthorized signer", zap.Error(err))
+	zlog.Info("SubstreamsDataService.collect() correctly failed with unauthorized signer", zap.Error(err))
 
 	t.Logf("Collection correctly failed with unauthorized signer")
 }
@@ -191,12 +207,20 @@ func TestRevokeSignerFlow(t *testing.T) {
 	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
+	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	require.NoError(t, err, "Failed to set provision tokens range")
+
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.DataServiceAddr, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
+
+	// Register service provider with SubstreamsDataService
+	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	require.NoError(t, err, "Failed to register with data service")
 
 	// Create a signer key
 	signerKey, err := eth.NewRandomPrivateKey()
@@ -235,7 +259,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 		CollectionID:    collectionID,
 		Payer:           env.PayerAddr,
 		ServiceProvider: env.ServiceProviderAddr,
-		DataService:     env.DataServiceAddr,
+		DataService:     env.SubstreamsDataService,
 		TimestampNs:     uint64(time.Now().UnixNano()),
 		ValueAggregate:  big.NewInt(1000000000000000000), // 1 GRT
 		Metadata:        []byte{},
@@ -245,10 +269,10 @@ func TestRevokeSignerFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	dataServiceCut := uint64(100000)
-	zlog.Info("calling collect() with revoked signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
-	_, err = callCollect(env.ctx, env.rpcURL, env.DataServiceKey, env.ChainID, env.CollectorAddress, signedRAV, dataServiceCut, eth.Address{}, env)
+	zlog.Info("calling SubstreamsDataService.collect() with revoked signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
+	_, err = callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.Error(t, err, "Collection should fail with revoked signer")
-	zlog.Info("collect() correctly failed with revoked signer", zap.Error(err))
+	zlog.Info("SubstreamsDataService.collect() correctly failed with revoked signer", zap.Error(err))
 
 	t.Logf("Collection correctly failed with revoked signer")
 }
