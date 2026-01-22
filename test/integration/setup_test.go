@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
+	"github.com/streamingfast/eth-go/rlp"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -929,7 +930,12 @@ func signLegacyTx(tx []interface{}, chainID uint64, key *eth.PrivateKey) ([]byte
 
 	zlog.Debug("prepared transaction for signing", zap.Uint64("chain_id_in_tx", chainID))
 
-	signingHash := eth.Keccak256(rlpEncode(txForSigning))
+	rlpEncoded, err := rlp.Encode(txForSigning)
+	if err != nil {
+		zlog.Error("failed to RLP encode transaction for signing", zap.Error(err))
+		return nil, fmt.Errorf("rlp encode for signing: %w", err)
+	}
+	signingHash := eth.Keccak256(rlpEncoded)
 	zlog.Debug("computed signing hash", zap.String("hash", hex.EncodeToString(signingHash)))
 
 	sig, err := key.Sign(signingHash)
@@ -960,88 +966,12 @@ func signLegacyTx(tx []interface{}, chainID uint64, key *eth.PrivateKey) ([]byte
 	tx[7] = r
 	tx[8] = s
 
-	encoded := rlpEncode(tx)
+	encoded, err := rlp.Encode(tx)
+	if err != nil {
+		zlog.Error("failed to RLP encode signed transaction", zap.Error(err))
+		return nil, fmt.Errorf("rlp encode signed tx: %w", err)
+	}
 	return encoded, nil
-}
-
-// rlpEncode encodes data in RLP format
-func rlpEncode(items []interface{}) []byte {
-	var buf bytes.Buffer
-
-	for _, item := range items {
-		encodeItem(&buf, item)
-	}
-
-	// If total length > 55, use long list encoding
-	content := buf.Bytes()
-	if len(content) <= 55 {
-		result := make([]byte, 1+len(content))
-		result[0] = 0xc0 + byte(len(content))
-		copy(result[1:], content)
-		return result
-	}
-
-	// Long list
-	lenBytes := encodeLength(uint64(len(content)))
-	result := make([]byte, 1+len(lenBytes)+len(content))
-	result[0] = 0xf7 + byte(len(lenBytes))
-	copy(result[1:], lenBytes)
-	copy(result[1+len(lenBytes):], content)
-	return result
-}
-
-func encodeItem(buf *bytes.Buffer, item interface{}) {
-	switch v := item.(type) {
-	case []byte:
-		if len(v) == 0 {
-			buf.WriteByte(0x80)
-		} else if len(v) == 1 && v[0] < 0x80 {
-			buf.WriteByte(v[0])
-		} else if len(v) <= 55 {
-			buf.WriteByte(0x80 + byte(len(v)))
-			buf.Write(v)
-		} else {
-			lenBytes := encodeLength(uint64(len(v)))
-			buf.WriteByte(0xb7 + byte(len(lenBytes)))
-			buf.Write(lenBytes)
-			buf.Write(v)
-		}
-	case uint64:
-		if v == 0 {
-			buf.WriteByte(0x80)
-		} else if v < 0x80 {
-			buf.WriteByte(byte(v))
-		} else {
-			b := big.NewInt(int64(v)).Bytes()
-			buf.WriteByte(0x80 + byte(len(b)))
-			buf.Write(b)
-		}
-	case *big.Int:
-		if v == nil || v.Sign() == 0 {
-			buf.WriteByte(0x80)
-		} else {
-			b := v.Bytes()
-			if len(b) == 1 && b[0] < 0x80 {
-				buf.WriteByte(b[0])
-			} else if len(b) <= 55 {
-				buf.WriteByte(0x80 + byte(len(b)))
-				buf.Write(b)
-			} else {
-				lenBytes := encodeLength(uint64(len(b)))
-				buf.WriteByte(0xb7 + byte(len(lenBytes)))
-				buf.Write(lenBytes)
-				buf.Write(b)
-			}
-		}
-	}
-}
-
-func encodeLength(length uint64) []byte {
-	if length < 256 {
-		return []byte{byte(length)}
-	}
-	b := big.NewInt(int64(length)).Bytes()
-	return b
 }
 
 // Cleanup terminates the test environment
