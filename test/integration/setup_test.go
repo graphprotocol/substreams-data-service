@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
-	"github.com/streamingfast/eth-go/rlp"
+	"github.com/streamingfast/eth-go/signer/native"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -738,7 +738,6 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 	}
 	gasPrice, _ := new(big.Int).SetString(gasPriceHex[2:], 16)
 
-	// Create raw transaction for contract deployment
 	// Gas limit estimate for contract deployment
 	gasLimit := uint64(5000000) // Increased for larger original contracts
 
@@ -753,12 +752,14 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 		data = append(data, constructorArgs...)
 	}
 
-	// Create EIP-155 transaction
-	tx := createLegacyTx(nonce.Uint64(), nil, big.NewInt(0), gasLimit, gasPrice, data)
+	// Create signer and sign transaction using eth-go
+	signer, err := native.NewPrivateKeySigner(zlog, big.NewInt(int64(chainID)), key)
+	if err != nil {
+		return eth.Address{}, fmt.Errorf("creating signer: %w", err)
+	}
 
-	// Sign transaction
 	zlog.Debug("signing deployment transaction", zap.Uint64("chain_id", chainID))
-	signedTx, err := signLegacyTx(tx, chainID, key)
+	signedTx, err := signer.SignTransaction(nonce.Uint64(), nil, big.NewInt(0), gasLimit, gasPrice, data)
 	if err != nil {
 		zlog.Error("failed to sign deployment transaction", zap.Error(err), zap.Uint64("chain_id", chainID))
 		return eth.Address{}, fmt.Errorf("signing transaction: %w", err)
@@ -897,83 +898,6 @@ func (env *TestEnv) CallContract(to eth.Address, data []byte) ([]byte, error) {
 	return hex.DecodeString(resultHex)
 }
 
-// Legacy transaction RLP encoding
-func createLegacyTx(nonce uint64, to *eth.Address, value *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte) []interface{} {
-	tx := make([]interface{}, 9)
-	tx[0] = nonce
-	tx[1] = gasPrice
-	tx[2] = gasLimit
-	if to != nil {
-		// Explicitly convert to []byte to ensure proper type for RLP encoding
-		addrBytes := make([]byte, 20)
-		copy(addrBytes, (*to)[:])
-		tx[3] = addrBytes
-	} else {
-		tx[3] = []byte{} // Contract creation
-	}
-	tx[4] = value
-	tx[5] = data
-	// v, r, s will be filled after signing
-	return tx
-}
-
-func signLegacyTx(tx []interface{}, chainID uint64, key *eth.PrivateKey) ([]byte, error) {
-	zlog.Debug("signLegacyTx called", zap.Uint64("chain_id", chainID))
-
-	// Prepare transaction for signing (EIP-155)
-	// Hash: keccak256(rlp(nonce, gasPrice, gasLimit, to, value, data, chainId, 0, 0))
-	txForSigning := make([]interface{}, 9)
-	copy(txForSigning, tx[:6])
-	txForSigning[6] = chainID
-	txForSigning[7] = uint64(0)
-	txForSigning[8] = uint64(0)
-
-	zlog.Debug("prepared transaction for signing", zap.Uint64("chain_id_in_tx", chainID))
-
-	rlpEncoded, err := rlp.Encode(txForSigning)
-	if err != nil {
-		zlog.Error("failed to RLP encode transaction for signing", zap.Error(err))
-		return nil, fmt.Errorf("rlp encode for signing: %w", err)
-	}
-	signingHash := eth.Keccak256(rlpEncoded)
-	zlog.Debug("computed signing hash", zap.String("hash", hex.EncodeToString(signingHash)))
-
-	sig, err := key.Sign(signingHash)
-	if err != nil {
-		zlog.Error("failed to sign hash", zap.Error(err))
-		return nil, err
-	}
-
-	// Extract r, s, v from signature
-	// eth-go Signature is [V (1 byte), R (32 bytes), S (32 bytes)] format
-	// V is typically 27 or 28 (Ethereum standard)
-	v := uint64(sig[0])
-	r := new(big.Int).SetBytes(sig[1:33])
-	s := new(big.Int).SetBytes(sig[33:65])
-
-	zlog.Debug("extracted signature components", zap.Uint64("v_raw", v), zap.String("r", r.String()), zap.String("s", s.String()))
-
-	// Normalize v to raw ECDSA recovery ID (0 or 1)
-	// eth-go Sign() returns v = 27 or 28 (Ethereum standard)
-	if v >= 27 {
-		v -= 27
-	}
-
-	// EIP-155: v = v + chainId * 2 + 35
-	v = v + chainID*2 + 35
-
-	tx[6] = v
-	tx[7] = r
-	tx[8] = s
-
-	encoded, err := rlp.Encode(tx)
-	if err != nil {
-		zlog.Error("failed to RLP encode signed transaction", zap.Error(err))
-		return nil, fmt.Errorf("rlp encode signed tx: %w", err)
-	}
-	return encoded, nil
-}
-
 // Cleanup terminates the test environment
 func (env *TestEnv) Cleanup() {
 	if env.anvilContainer != nil {
@@ -1110,8 +1034,10 @@ func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, ch
 	from := key.PublicKey().Address()
 
 	toStr := "contract_creation"
+	var toBytes []byte
 	if to != nil {
 		toStr = to.Pretty()
+		toBytes = (*to)[:]
 	}
 	zlog.Debug("sending transaction", zap.Stringer("from", from), zap.String("to", toStr), zap.Uint64("chain_id", chainID))
 
@@ -1133,12 +1059,14 @@ func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, ch
 
 	gasLimit := uint64(500000)
 
-	// Create transaction
-	tx := createLegacyTx(nonce.Uint64(), to, value, gasLimit, gasPrice, data)
+	// Create signer and sign transaction using eth-go
+	signer, err := native.NewPrivateKeySigner(zlog, big.NewInt(int64(chainID)), key)
+	if err != nil {
+		return fmt.Errorf("creating signer: %w", err)
+	}
 
-	// Sign
 	zlog.Debug("signing transaction", zap.Uint64("chain_id", chainID))
-	signedTx, err := signLegacyTx(tx, chainID, key)
+	signedTx, err := signer.SignTransaction(nonce.Uint64(), toBytes, value, gasLimit, gasPrice, data)
 	if err != nil {
 		zlog.Error("failed to sign transaction", zap.Error(err), zap.Uint64("chain_id", chainID))
 		return fmt.Errorf("signing transaction: %w", err)
