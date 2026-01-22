@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
+	"github.com/streamingfast/eth-go/rpc"
 	horizon "github.com/streamingfast/horizon-go"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -21,28 +22,28 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	tokensToDeposit := new(big.Int)
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to mint GRT")
 
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService (using ServiceProviderKey as operator)
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create a signer key (different from payer)
@@ -61,7 +62,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 
 	// Authorize the signer (payer authorizes signer) - requires signer's key to generate proof
 	zlog.Info("authorizing signer", zap.Stringer("payer", env.PayerAddr), zap.Stringer("signer", signerAddr), zap.Uint64("chain_id", env.ChainID))
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 	zlog.Info("signer authorized successfully")
 
@@ -104,7 +105,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	// Call collect() via SubstreamsDataService - should succeed because signer is authorized
 	dataServiceCut := uint64(100000) // 10% in PPM
 	zlog.Info("calling SubstreamsDataService.collect() with authorized signer", zap.Uint64("chain_id", env.ChainID))
-	tokensCollected, err := callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
+	tokensCollected, err := callDataServiceCollect(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1000000000000000000), tokensCollected)
 	zlog.Info("SubstreamsDataService.collect() with authorized signer succeeded")
@@ -121,28 +122,28 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	tokensToDeposit := new(big.Int)
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to mint GRT")
 
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create an unauthorized signer key
@@ -182,7 +183,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	// Call collect() via SubstreamsDataService - should fail
 	dataServiceCut := uint64(100000) // 10% in PPM
 	zlog.Info("calling SubstreamsDataService.collect() with unauthorized signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
-	_, err = callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
+	_, err = callDataServiceCollect(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.Error(t, err, "Collection should fail with unauthorized signer")
 	zlog.Info("SubstreamsDataService.collect() correctly failed with unauthorized signer", zap.Error(err))
 
@@ -198,28 +199,28 @@ func TestRevokeSignerFlow(t *testing.T) {
 	tokensToDeposit := new(big.Int)
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to mint GRT")
 
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create a signer key
@@ -228,7 +229,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 	signerAddr := signerKey.PublicKey().Address()
 
 	// Authorize the signer - requires signer's key to generate proof
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 
 	// Verify signer is authorized
@@ -238,7 +239,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 	// Revoke the signer (thawing period is 0 in our setup, so can revoke immediately)
 	zlog.Info("revoking signer", zap.Stringer("signer", signerAddr), zap.Uint64("chain_id", env.ChainID))
-	err = callRevokeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerAddr, env.ABIs.Collector)
+	err = callRevokeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerAddr, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to revoke signer")
 	zlog.Info("signer revoked successfully")
 
@@ -270,7 +271,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 	dataServiceCut := uint64(100000)
 	zlog.Info("calling SubstreamsDataService.collect() with revoked signer (expecting failure)", zap.Uint64("chain_id", env.ChainID))
-	_, err = callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
+	_, err = callDataServiceCollect(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.Error(t, err, "Collection should fail with revoked signer")
 	zlog.Info("SubstreamsDataService.collect() correctly failed with revoked signer", zap.Error(err))
 
@@ -281,7 +282,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 // callAuthorizeSigner calls Authorizable.authorizeSigner(address signer, uint256 proofDeadline, bytes proof)
 // This is the ORIGINAL contract signature that requires a cryptographic proof from the signer
-func callAuthorizeSigner(ctx testContext, rpcURL string, authorizerKey *eth.PrivateKey, chainID uint64, collector eth.Address, signerKey *eth.PrivateKey, abi *eth.ABI) error {
+func callAuthorizeSigner(ctx testContext, rpcClient *rpc.Client, authorizerKey *eth.PrivateKey, chainID uint64, collector eth.Address, signerKey *eth.PrivateKey, abi *eth.ABI) error {
 	authorizerAddr := authorizerKey.PublicKey().Address()
 	signerAddr := signerKey.PublicKey().Address()
 
@@ -304,12 +305,12 @@ func callAuthorizeSigner(ctx testContext, rpcURL string, authorizerKey *eth.Priv
 		return fmt.Errorf("encoding authorizeSigner call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, authorizerKey, chainID, &collector, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, authorizerKey, chainID, &collector, big.NewInt(0), data)
 }
 
 // callThawSigner calls Authorizable.thawSigner(address signer)
 // This starts the thawing process before revocation
-func callThawSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+func callThawSigner(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
 	thawSignerFn := abi.FindFunctionByName("thawSigner")
 	if thawSignerFn == nil {
 		return fmt.Errorf("thawSigner function not found in ABI")
@@ -320,12 +321,12 @@ func callThawSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID
 		return fmt.Errorf("encoding thawSigner call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &collector, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &collector, big.NewInt(0), data)
 }
 
 // callRevokeAuthorizedSigner calls Authorizable.revokeAuthorizedSigner(address signer)
 // This completes the revocation after thawing period has passed
-func callRevokeAuthorizedSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+func callRevokeAuthorizedSigner(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
 	revokeSignerFn := abi.FindFunctionByName("revokeAuthorizedSigner")
 	if revokeSignerFn == nil {
 		return fmt.Errorf("revokeAuthorizedSigner function not found in ABI")
@@ -336,19 +337,19 @@ func callRevokeAuthorizedSigner(ctx testContext, rpcURL string, key *eth.Private
 		return fmt.Errorf("encoding revokeAuthorizedSigner call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &collector, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &collector, big.NewInt(0), data)
 }
 
 // callRevokeSigner performs the two-step revoke flow: thaw + revoke
 // Since thawing period is 0 in our test setup, we can call both immediately
-func callRevokeSigner(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
+func callRevokeSigner(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, collector eth.Address, signer eth.Address, abi *eth.ABI) error {
 	// Step 1: Thaw the signer
-	if err := callThawSigner(ctx, rpcURL, key, chainID, collector, signer, abi); err != nil {
+	if err := callThawSigner(ctx, rpcClient, key, chainID, collector, signer, abi); err != nil {
 		return fmt.Errorf("thawing signer: %w", err)
 	}
 
 	// Step 2: Revoke the signer (thawing period is 0, so we can do this immediately)
-	if err := callRevokeAuthorizedSigner(ctx, rpcURL, key, chainID, collector, signer, abi); err != nil {
+	if err := callRevokeAuthorizedSigner(ctx, rpcClient, key, chainID, collector, signer, abi); err != nil {
 		return fmt.Errorf("revoking signer: %w", err)
 	}
 

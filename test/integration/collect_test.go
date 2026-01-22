@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
+	"github.com/streamingfast/eth-go/rpc"
 	horizon "github.com/streamingfast/horizon-go"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -27,21 +28,21 @@ func TestCollectRAV(t *testing.T) {
 
 	// Mint GRT to payer
 	zlog.Debug("minting GRT to payer", zap.String("payer", env.PayerAddr.Pretty()), zap.String("amount", tokensToDeposit.String()))
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to mint GRT")
 
 	// Approve escrow to spend GRT
 	zlog.Debug("approving GRT for escrow", zap.String("escrow", env.PaymentsEscrow.Pretty()))
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
 	// Deposit to escrow (using 3-level mapping: payer -> collector -> receiver)
 	zlog.Debug("depositing to escrow", zap.String("amount", tokensToDeposit.String()))
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	// Setup: Set provision for service provider in staking contract
@@ -50,11 +51,11 @@ func TestCollectRAV(t *testing.T) {
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
 	zlog.Debug("setting provision", zap.String("service_provider", env.ServiceProviderAddr.Pretty()), zap.String("amount", provisionTokens.String()))
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create a dedicated signer key for signing RAVs
@@ -65,7 +66,7 @@ func TestCollectRAV(t *testing.T) {
 
 	// Authorize the signer (payer authorizes the signer to sign RAVs on their behalf)
 	zlog.Debug("authorizing signer for RAV signing", zap.Stringer("payer", env.PayerAddr), zap.Stringer("signer", signerAddr))
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 
 	// Create domain
@@ -103,7 +104,7 @@ func TestCollectRAV(t *testing.T) {
 	// Call collect() via SubstreamsDataService
 	dataServiceCut := uint64(100000) // 10% in PPM
 	zlog.Info("calling SubstreamsDataService.collect() on chain", zap.String("data_service", env.SubstreamsDataService.Pretty()), zap.Uint64("chain_id", env.ChainID))
-	tokensCollected, err := callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
+	tokensCollected, err := callDataServiceCollect(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV, dataServiceCut, env)
 	require.NoError(t, err)
 	require.Equal(t, valueAggregate.Uint64(), tokensCollected)
 	zlog.Info("SubstreamsDataService.collect() succeeded", zap.Uint64("tokens_collected", tokensCollected))
@@ -124,28 +125,28 @@ func TestCollectRAVIncremental(t *testing.T) {
 	tokensToDeposit := new(big.Int)
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to mint GRT")
 
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
 	maxVerifierCut := uint32(0)
 	thawingPeriod := uint64(0)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, maxVerifierCut, thawingPeriod, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create a dedicated signer key for signing RAVs
@@ -154,7 +155,7 @@ func TestCollectRAVIncremental(t *testing.T) {
 	require.NoError(t, err)
 
 	// Authorize the signer (payer authorizes the signer to sign RAVs on their behalf)
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
@@ -177,7 +178,7 @@ func TestCollectRAVIncremental(t *testing.T) {
 	require.NoError(t, err)
 
 	dataServiceCut := uint64(100000) // 10% in PPM
-	collected1, err := callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV1, dataServiceCut, env)
+	collected1, err := callDataServiceCollect(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV1, dataServiceCut, env)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1000000000000000000), collected1)
 
@@ -195,7 +196,7 @@ func TestCollectRAVIncremental(t *testing.T) {
 	signedRAV2, err := horizon.Sign(domain, rav2, signerKey)
 	require.NoError(t, err)
 
-	collected2, err := callDataServiceCollect(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV2, dataServiceCut, env)
+	collected2, err := callDataServiceCollect(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, signedRAV2, dataServiceCut, env)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2000000000000000000), collected2) // Delta: 2 GRT
 
@@ -211,7 +212,7 @@ func TestCollectRAVIncremental(t *testing.T) {
 // ========== Contract Call Helpers ==========
 
 // callMintGRT calls MockGRTToken.mint(address to, uint256 amount)
-func callMintGRT(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, token eth.Address, to eth.Address, amount *big.Int, abi *eth.ABI) error {
+func callMintGRT(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, token eth.Address, to eth.Address, amount *big.Int, abi *eth.ABI) error {
 	mintFn := abi.FindFunctionByName("mint")
 	if mintFn == nil {
 		return fmt.Errorf("mint function not found in ABI")
@@ -222,11 +223,11 @@ func callMintGRT(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID ui
 		return fmt.Errorf("encoding mint call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &token, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &token, big.NewInt(0), data)
 }
 
 // callApproveGRT calls IERC20.approve(address spender, uint256 amount)
-func callApproveGRT(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, token eth.Address, spender eth.Address, amount *big.Int, abi *eth.ABI) error {
+func callApproveGRT(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, token eth.Address, spender eth.Address, amount *big.Int, abi *eth.ABI) error {
 	approveFn := abi.FindFunctionByName("approve")
 	if approveFn == nil {
 		return fmt.Errorf("approve function not found in ABI")
@@ -237,11 +238,11 @@ func callApproveGRT(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID
 		return fmt.Errorf("encoding approve call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &token, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &token, big.NewInt(0), data)
 }
 
 // callDepositEscrow calls MockPaymentsEscrow.deposit(address collector, address receiver, uint256 amount)
-func callDepositEscrow(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, escrow eth.Address, collector eth.Address, receiver eth.Address, amount *big.Int, abi *eth.ABI) error {
+func callDepositEscrow(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, escrow eth.Address, collector eth.Address, receiver eth.Address, amount *big.Int, abi *eth.ABI) error {
 	depositFn := abi.FindFunctionByName("deposit")
 	if depositFn == nil {
 		return fmt.Errorf("deposit function not found in ABI")
@@ -252,11 +253,11 @@ func callDepositEscrow(ctx testContext, rpcURL string, key *eth.PrivateKey, chai
 		return fmt.Errorf("encoding deposit call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &escrow, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &escrow, big.NewInt(0), data)
 }
 
 // callSetProvision calls MockStaking.setProvision(address serviceProvider, address dataService, uint256 tokens, uint32 maxVerifierCut, uint64 thawingPeriod)
-func callSetProvision(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, staking eth.Address, serviceProvider eth.Address, dataService eth.Address, tokens *big.Int, maxVerifierCut uint32, thawingPeriod uint64, abi *eth.ABI) error {
+func callSetProvision(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, staking eth.Address, serviceProvider eth.Address, dataService eth.Address, tokens *big.Int, maxVerifierCut uint32, thawingPeriod uint64, abi *eth.ABI) error {
 	setProvisionFn := abi.FindFunctionByName("setProvision")
 	if setProvisionFn == nil {
 		return fmt.Errorf("setProvision function not found in ABI")
@@ -267,11 +268,11 @@ func callSetProvision(ctx testContext, rpcURL string, key *eth.PrivateKey, chain
 		return fmt.Errorf("encoding setProvision call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &staking, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &staking, big.NewInt(0), data)
 }
 
 // callSetProvisionTokensRange calls SubstreamsDataService.setProvisionTokensRange(uint256 minimumProvisionTokens)
-func callSetProvisionTokensRange(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, dataService eth.Address, minimumProvisionTokens *big.Int, abi *eth.ABI) error {
+func callSetProvisionTokensRange(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, dataService eth.Address, minimumProvisionTokens *big.Int, abi *eth.ABI) error {
 	fn := abi.FindFunctionByName("setProvisionTokensRange")
 	if fn == nil {
 		return fmt.Errorf("setProvisionTokensRange function not found in ABI")
@@ -282,12 +283,12 @@ func callSetProvisionTokensRange(ctx testContext, rpcURL string, key *eth.Privat
 		return fmt.Errorf("encoding setProvisionTokensRange call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &dataService, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &dataService, big.NewInt(0), data)
 }
 
 // callRegisterWithDataService calls SubstreamsDataService.register(address indexer, bytes data)
 // The data parameter is abi.encode(paymentsDestination)
-func callRegisterWithDataService(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, dataService eth.Address, indexer eth.Address, paymentsDestination eth.Address, abi *eth.ABI) error {
+func callRegisterWithDataService(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, dataService eth.Address, indexer eth.Address, paymentsDestination eth.Address, abi *eth.ABI) error {
 	fn := abi.FindFunctionByName("register")
 	if fn == nil {
 		return fmt.Errorf("register function not found in ABI")
@@ -302,13 +303,13 @@ func callRegisterWithDataService(ctx testContext, rpcURL string, key *eth.Privat
 		return fmt.Errorf("encoding register call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &dataService, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &dataService, big.NewInt(0), data)
 }
 
 // callDataServiceCollect calls SubstreamsDataService.collect(address indexer, uint8 paymentType, bytes data)
 // This is the recommended way to collect payments - through the data service contract
 // Returns tokens collected (delta from previous collection)
-func callDataServiceCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, dataService eth.Address, indexer eth.Address, signedRAV *horizon.SignedRAV, dataServiceCut uint64, env *TestEnv) (uint64, error) {
+func callDataServiceCollect(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, dataService eth.Address, indexer eth.Address, signedRAV *horizon.SignedRAV, dataServiceCut uint64, env *TestEnv) (uint64, error) {
 	rav := signedRAV.Message
 	zlog.Debug("preparing SubstreamsDataService.collect() call",
 		zap.Uint64("chain_id", chainID),
@@ -347,7 +348,7 @@ func callDataServiceCollect(ctx testContext, rpcURL string, key *eth.PrivateKey,
 
 	// Send transaction
 	zlog.Debug("sending SubstreamsDataService.collect() transaction", zap.Uint64("chain_id", chainID))
-	if err := sendTransaction(ctx, rpcURL, key, chainID, &dataService, big.NewInt(0), calldata); err != nil {
+	if err := sendTransaction(ctx, rpcClient, key, chainID, &dataService, big.NewInt(0), calldata); err != nil {
 		zlog.Error("SubstreamsDataService.collect() transaction failed", zap.Error(err), zap.Uint64("chain_id", chainID))
 		return 0, err
 	}
@@ -371,7 +372,7 @@ func callDataServiceCollect(ctx testContext, rpcURL string, key *eth.PrivateKey,
 // callCollect calls GraphTallyCollector.collect(uint8 paymentType, bytes data)
 // DEPRECATED: Use callDataServiceCollect instead to go through SubstreamsDataService
 // Returns tokens collected (delta from previous collection)
-func callCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID uint64, collector eth.Address, signedRAV *horizon.SignedRAV, dataServiceCut uint64, receiverDestination eth.Address, env *TestEnv) (uint64, error) {
+func callCollect(ctx testContext, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, collector eth.Address, signedRAV *horizon.SignedRAV, dataServiceCut uint64, receiverDestination eth.Address, env *TestEnv) (uint64, error) {
 	rav := signedRAV.Message
 	zlog.Debug("preparing collect() call",
 		zap.Uint64("chain_id", chainID),
@@ -411,7 +412,7 @@ func callCollect(ctx testContext, rpcURL string, key *eth.PrivateKey, chainID ui
 
 	// Send transaction
 	zlog.Debug("sending collect() transaction", zap.Uint64("chain_id", chainID))
-	if err := sendTransaction(ctx, rpcURL, key, chainID, &collector, big.NewInt(0), calldata); err != nil {
+	if err := sendTransaction(ctx, rpcClient, key, chainID, &collector, big.NewInt(0), calldata); err != nil {
 		zlog.Error("collect() transaction failed", zap.Error(err), zap.Uint64("chain_id", chainID))
 		return 0, err
 	}

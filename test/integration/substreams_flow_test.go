@@ -503,7 +503,7 @@ func (psc *ProviderSidecar) CollectFinalRAV(env *TestEnv, dataServiceAddr eth.Ad
 	// Call collect() via SubstreamsDataService
 	tokensCollected, err := callDataServiceCollect(
 		env.ctx,
-		env.rpcURL,
+		env.rpcClient,
 		serviceProviderKey,
 		env.ChainID,
 		dataServiceAddr,
@@ -534,29 +534,29 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
 	// Mint GRT to payer
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to mint GRT")
 
 	// Approve escrow to spend GRT
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err, "Failed to approve GRT")
 
 	// Deposit to escrow
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err, "Failed to deposit to escrow")
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	// Set provision for service provider
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
 	require.NoError(t, err, "Failed to set provision")
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create signer key and authorize it
@@ -564,7 +564,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err, "Failed to authorize signer")
 
 	// ============================================================================
@@ -760,27 +760,27 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	smallEscrow := big.NewInt(50000000000000000) // 0.05 GRT - very small
 
 	// Mint and deposit small amount
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, smallEscrow, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, smallEscrow, env.ABIs.GRTToken)
 	require.NoError(t, err)
 
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, smallEscrow, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, smallEscrow, env.ABIs.GRTToken)
 	require.NoError(t, err)
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, smallEscrow, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, smallEscrow, env.ABIs.Escrow)
 	require.NoError(t, err)
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	// Setup provision
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
 	require.NoError(t, err)
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	// Create and authorize signer
@@ -788,7 +788,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err)
 
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
@@ -887,33 +887,33 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	tokensToDeposit := new(big.Int)
 	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
 
-	err := callMintGRT(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
+	err := callMintGRT(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.GRTToken, env.PayerAddr, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err)
 
-	err = callApproveGRT(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
+	err = callApproveGRT(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.GRTToken, env.PaymentsEscrow, tokensToDeposit, env.ABIs.GRTToken)
 	require.NoError(t, err)
 
-	err = callDepositEscrow(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
+	err = callDepositEscrow(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.PaymentsEscrow, env.CollectorAddress, env.ServiceProviderAddr, tokensToDeposit, env.ABIs.Escrow)
 	require.NoError(t, err)
 
 	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
+	err = callSetProvisionTokensRange(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.SubstreamsDataService, big.NewInt(0), env.ABIs.DataService)
 	require.NoError(t, err, "Failed to set provision tokens range")
 
 	provisionTokens := new(big.Int)
 	provisionTokens.SetString("1000000000000000000000", 10)
-	err = callSetProvision(env.ctx, env.rpcURL, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
+	err = callSetProvision(env.ctx, env.rpcClient, env.DeployerKey, env.ChainID, env.Staking, env.ServiceProviderAddr, env.SubstreamsDataService, provisionTokens, 0, 0, env.ABIs.Staking)
 	require.NoError(t, err)
 
 	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env.ctx, env.rpcURL, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
+	err = callRegisterWithDataService(env.ctx, env.rpcClient, env.ServiceProviderKey, env.ChainID, env.SubstreamsDataService, env.ServiceProviderAddr, env.ServiceProviderAddr, env.ABIs.DataService)
 	require.NoError(t, err, "Failed to register with data service")
 
 	signerKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
 
-	err = callAuthorizeSigner(env.ctx, env.rpcURL, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
+	err = callAuthorizeSigner(env.ctx, env.rpcClient, env.PayerKey, env.ChainID, env.CollectorAddress, signerKey, env.ABIs.Collector)
 	require.NoError(t, err)
 
 	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)

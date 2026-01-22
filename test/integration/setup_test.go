@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
+	"github.com/streamingfast/eth-go/rpc"
 	"github.com/streamingfast/eth-go/signer/native"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -48,6 +49,7 @@ type TestEnv struct {
 	cancel                context.CancelFunc
 	anvilContainer        testcontainers.Container
 	rpcURL                string
+	rpcClient             *rpc.Client
 	ChainID               uint64
 	GRTToken              eth.Address
 	Controller            eth.Address
@@ -135,22 +137,21 @@ func setupEnv() (*TestEnv, error) {
 	rpcURL := fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
 	zlog.Info("Anvil RPC endpoint ready", zap.String("rpc_url", rpcURL))
 
+	// Create RPC client
+	rpcClient := rpc.NewClient(rpcURL)
+
 	// Wait for RPC to be responsive and get the chain ID
 	zlog.Info("querying chain ID from Anvil node")
 	var chainIDInt *big.Int
 	for i := 0; i < 20; i++ {
 		time.Sleep(500 * time.Millisecond)
 		zlog.Debug("attempting to query chain ID", zap.Int("attempt", i+1))
-		chainIDHex, err := rpcCall[string](ctx, rpcURL, "eth_chainId", nil)
-		if err == nil && chainIDHex != "" {
-			zlog.Debug("received chain ID response", zap.String("chain_id_hex", chainIDHex))
-			chainIDInt, _ = new(big.Int).SetString(chainIDHex[2:], 16)
-			if chainIDInt != nil && chainIDInt.Sign() > 0 {
-				zlog.Info("chain ID successfully retrieved", zap.Uint64("chain_id", chainIDInt.Uint64()), zap.String("chain_id_hex", chainIDHex))
-				break
-			}
+		chainIDInt, err = rpcClient.ChainID(ctx)
+		if err == nil && chainIDInt != nil && chainIDInt.Sign() > 0 {
+			zlog.Info("chain ID successfully retrieved", zap.Uint64("chain_id", chainIDInt.Uint64()))
+			break
 		} else {
-			zlog.Debug("chain ID query failed", zap.Error(err), zap.String("chain_id_hex", chainIDHex))
+			zlog.Debug("chain ID query failed", zap.Error(err))
 		}
 	}
 	if chainIDInt == nil {
@@ -208,7 +209,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding deployer account")
 	fundAmount := new(big.Int)
 	fundAmount.SetString("10000000000000000000", 10) // 10 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, devAccount, deployerAddr, fundAmount); err != nil {
+	if err := fundFromDevAccount(ctx, rpcURL, rpcClient, devAccount, deployerAddr, fundAmount); err != nil {
 		zlog.Error("failed to fund deployer", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -220,7 +221,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding payer account")
 	fundAmount2 := new(big.Int)
 	fundAmount2.SetString("5000000000000000000", 10) // 5 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, devAccount, payerAddr, fundAmount2); err != nil {
+	if err := fundFromDevAccount(ctx, rpcURL, rpcClient, devAccount, payerAddr, fundAmount2); err != nil {
 		zlog.Error("failed to fund payer", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -232,7 +233,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding service provider account")
 	fundAmount3 := new(big.Int)
 	fundAmount3.SetString("2000000000000000000", 10) // 2 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, devAccount, serviceProviderAddr, fundAmount3); err != nil {
+	if err := fundFromDevAccount(ctx, rpcURL, rpcClient, devAccount, serviceProviderAddr, fundAmount3); err != nil {
 		zlog.Error("failed to fund service provider", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -257,7 +258,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading GRT artifact: %w", err)
 	}
-	grtAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, grtArtifact, nil)
+	grtAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, grtArtifact, nil)
 	if err != nil {
 		zlog.Error("failed to deploy GRT token", zap.Error(err))
 		anvilContainer.Terminate(ctx)
@@ -279,7 +280,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding controller args: %w", err)
 	}
-	controllerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, controllerArtifact, controllerArgs)
+	controllerAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, controllerArtifact, controllerArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -294,7 +295,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading Staking artifact: %w", err)
 	}
-	stakingAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, stakingArtifact, nil)
+	stakingAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, stakingArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -311,7 +312,7 @@ func setupEnv() (*TestEnv, error) {
 	}
 
 	// Set GRT token in MockStaking (needed for addToDelegationPool and stakeTo)
-	if err := callSetGraphToken(ctx, rpcURL, deployerKey, chainID, stakingAddr, grtAddr, stakingABI); err != nil {
+	if err := callSetGraphToken(ctx, rpcClient, deployerKey, chainID, stakingAddr, grtAddr, stakingABI); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("setting GRT token in staking: %w", err)
@@ -325,7 +326,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading EpochManager artifact: %w", err)
 	}
-	epochManagerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, epochManagerArtifact, nil)
+	epochManagerAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, epochManagerArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -340,7 +341,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading RewardsManager artifact: %w", err)
 	}
-	rewardsManagerAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, rewardsManagerArtifact, nil)
+	rewardsManagerAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, rewardsManagerArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -355,7 +356,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading TokenGateway artifact: %w", err)
 	}
-	tokenGatewayAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, tokenGatewayArtifact, nil)
+	tokenGatewayAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, tokenGatewayArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -370,7 +371,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading ProxyAdmin artifact: %w", err)
 	}
-	proxyAdminAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, proxyAdminArtifact, nil)
+	proxyAdminAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, proxyAdminArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -385,7 +386,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("loading Curation artifact: %w", err)
 	}
-	curationAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, curationArtifact, nil)
+	curationAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, curationArtifact, nil)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -429,7 +430,7 @@ func setupEnv() (*TestEnv, error) {
 	}
 
 	for _, reg := range registrations {
-		if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainID, controllerAddr, reg.name, reg.addr, controllerABI); err != nil {
+		if err := callSetContractProxy(ctx, rpcClient, deployerKey, chainID, controllerAddr, reg.name, reg.addr, controllerABI); err != nil {
 			anvilContainer.Terminate(ctx)
 			cancel()
 			return nil, fmt.Errorf("registering %s in controller: %w", reg.name, err)
@@ -457,7 +458,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding GraphPayments args: %w", err)
 	}
-	graphPaymentsAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, graphPaymentsArtifact, graphPaymentsArgs)
+	graphPaymentsAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, graphPaymentsArtifact, graphPaymentsArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -471,7 +472,7 @@ func setupEnv() (*TestEnv, error) {
 	// 3. The contract works correctly without initialization
 
 	// Update Controller with real GraphPayments address
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainID, controllerAddr, "GraphPayments", graphPaymentsAddr, controllerABI); err != nil {
+	if err := callSetContractProxy(ctx, rpcClient, deployerKey, chainID, controllerAddr, "GraphPayments", graphPaymentsAddr, controllerABI); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("updating GraphPayments in controller: %w", err)
@@ -498,7 +499,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding PaymentsEscrow args: %w", err)
 	}
-	escrowAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, escrowArtifact, escrowArgs)
+	escrowAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, escrowArtifact, escrowArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -512,7 +513,7 @@ func setupEnv() (*TestEnv, error) {
 	// 3. The contract works correctly without initialization
 
 	// Update Controller with real PaymentsEscrow address
-	if err := callSetContractProxy(ctx, rpcURL, deployerKey, chainID, controllerAddr, "PaymentsEscrow", escrowAddr, controllerABI); err != nil {
+	if err := callSetContractProxy(ctx, rpcClient, deployerKey, chainID, controllerAddr, "PaymentsEscrow", escrowAddr, controllerABI); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("updating PaymentsEscrow in controller: %w", err)
@@ -537,7 +538,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding collector args: %w", err)
 	}
-	collectorAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, collectorArtifact, collectorArgs)
+	collectorAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, collectorArtifact, collectorArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -563,7 +564,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel()
 		return nil, fmt.Errorf("encoding SubstreamsDataService args: %w", err)
 	}
-	dataServiceContractAddr, err := deployContract(ctx, rpcURL, deployerKey, chainID, dataServiceArtifact, dataServiceArgs)
+	dataServiceContractAddr, err := deployContract(ctx, rpcClient, deployerKey, chainID, dataServiceArtifact, dataServiceArgs)
 	if err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -610,6 +611,7 @@ func setupEnv() (*TestEnv, error) {
 		cancel:                cancel,
 		anvilContainer:        anvilContainer,
 		rpcURL:                rpcURL,
+		rpcClient:             rpcClient,
 		ChainID:               chainID,
 		GRTToken:              grtAddr,
 		Controller:            controllerAddr,
@@ -696,7 +698,7 @@ func loadAllABIs() (*ABIs, error) {
 	}, nil
 }
 
-func fundFromDevAccount(ctx context.Context, rpcURL string, from, to eth.Address, amount *big.Int) error {
+func fundFromDevAccount(ctx context.Context, rpcURL string, rpcClient *rpc.Client, from, to eth.Address, amount *big.Int) error {
 	params := []interface{}{
 		map[string]interface{}{
 			"from":  from.Pretty(),
@@ -705,15 +707,16 @@ func fundFromDevAccount(ctx context.Context, rpcURL string, from, to eth.Address
 		},
 	}
 
+	// eth_sendTransaction with unsigned tx is Anvil-specific (dev account only)
 	txHash, err := rpcCall[string](ctx, rpcURL, "eth_sendTransaction", params)
 	if err != nil {
 		return fmt.Errorf("sending fund transaction: %w", err)
 	}
 
-	return waitForReceipt(ctx, rpcURL, txHash)
+	return waitForReceipt(ctx, rpcClient, txHash)
 }
 
-func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, artifact *ContractArtifact, constructorArgs []byte) (eth.Address, error) {
+func deployContract(ctx context.Context, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, artifact *ContractArtifact, constructorArgs []byte) (eth.Address, error) {
 	bytecode := artifact.Bytecode.Object
 	if strings.HasPrefix(bytecode, "0x") {
 		bytecode = bytecode[2:]
@@ -723,20 +726,18 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 	zlog.Debug("deploying contract from address", zap.Stringer("deployer", deployerAddr), zap.Uint64("chain_id", chainID))
 
 	// Get nonce
-	nonceHex, err := rpcCall[string](ctx, rpcURL, "eth_getTransactionCount", []interface{}{deployerAddr.Pretty(), "latest"})
+	nonce, err := rpcClient.Nonce(ctx, deployerAddr, nil)
 	if err != nil {
 		zlog.Error("failed to get nonce for contract deployment", zap.Error(err), zap.Stringer("deployer", deployerAddr))
 		return eth.Address{}, fmt.Errorf("getting nonce: %w", err)
 	}
-	nonce, _ := new(big.Int).SetString(nonceHex[2:], 16)
-	zlog.Debug("got nonce for deployment", zap.Uint64("nonce", nonce.Uint64()))
+	zlog.Debug("got nonce for deployment", zap.Uint64("nonce", nonce))
 
 	// Get gas price
-	gasPriceHex, err := rpcCall[string](ctx, rpcURL, "eth_gasPrice", nil)
+	gasPrice, err := rpcClient.GasPrice(ctx)
 	if err != nil {
 		return eth.Address{}, fmt.Errorf("getting gas price: %w", err)
 	}
-	gasPrice, _ := new(big.Int).SetString(gasPriceHex[2:], 16)
 
 	// Gas limit estimate for contract deployment
 	gasLimit := uint64(5000000) // Increased for larger original contracts
@@ -759,7 +760,7 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 	}
 
 	zlog.Debug("signing deployment transaction", zap.Uint64("chain_id", chainID))
-	signedTx, err := signer.SignTransaction(nonce.Uint64(), nil, big.NewInt(0), gasLimit, gasPrice, data)
+	signedTx, err := signer.SignTransaction(nonce, nil, big.NewInt(0), gasLimit, gasPrice, data)
 	if err != nil {
 		zlog.Error("failed to sign deployment transaction", zap.Error(err), zap.Uint64("chain_id", chainID))
 		return eth.Address{}, fmt.Errorf("signing transaction: %w", err)
@@ -767,7 +768,7 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 
 	// Send raw transaction
 	zlog.Debug("sending deployment transaction")
-	txHash, err := rpcCall[string](ctx, rpcURL, "eth_sendRawTransaction", []interface{}{"0x" + hex.EncodeToString(signedTx)})
+	txHash, err := rpcClient.SendRawTransaction(ctx, signedTx)
 	if err != nil {
 		zlog.Error("failed to send deployment transaction", zap.Error(err))
 		return eth.Address{}, fmt.Errorf("sending transaction: %w", err)
@@ -775,45 +776,48 @@ func deployContract(ctx context.Context, rpcURL string, key *eth.PrivateKey, cha
 	zlog.Debug("deployment transaction sent", zap.String("tx_hash", txHash))
 
 	// Wait for receipt
-	if err := waitForReceipt(ctx, rpcURL, txHash); err != nil {
+	if err := waitForReceipt(ctx, rpcClient, txHash); err != nil {
 		zlog.Error("failed to get receipt for deployment transaction", zap.Error(err), zap.String("tx_hash", txHash))
 		return eth.Address{}, fmt.Errorf("waiting for receipt: %w", err)
 	}
 
 	// Get receipt to find contract address
-	receipt, err := rpcCall[map[string]interface{}](ctx, rpcURL, "eth_getTransactionReceipt", []interface{}{txHash})
+	receipt, err := rpcClient.TransactionReceipt(ctx, eth.MustNewHash(txHash))
 	if err != nil {
 		zlog.Error("failed to get receipt", zap.Error(err), zap.String("tx_hash", txHash))
 		return eth.Address{}, fmt.Errorf("getting receipt: %w", err)
 	}
+	if receipt == nil {
+		zlog.Error("receipt is nil", zap.String("tx_hash", txHash))
+		return eth.Address{}, fmt.Errorf("receipt is nil")
+	}
 
-	contractAddrStr, ok := receipt["contractAddress"].(string)
-	if !ok || contractAddrStr == "" {
+	if receipt.ContractAddress == nil {
 		zlog.Error("contract address not found in receipt", zap.String("tx_hash", txHash))
 		return eth.Address{}, fmt.Errorf("contract address not in receipt")
 	}
 
-	contractAddr := eth.MustNewAddress(contractAddrStr)
+	contractAddr := *receipt.ContractAddress
 	zlog.Debug("contract deployed successfully", zap.Stringer("contract_address", contractAddr), zap.String("tx_hash", txHash))
 	return contractAddr, nil
 }
 
-func waitForReceipt(ctx context.Context, rpcURL, txHash string) error {
+func waitForReceipt(ctx context.Context, rpcClient *rpc.Client, txHash string) error {
 	timeout := time.After(30 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	hash := eth.MustNewHash(txHash)
 	for {
 		select {
 		case <-timeout:
 			return fmt.Errorf("timeout waiting for transaction %s", txHash)
 		case <-ticker.C:
-			receipt, err := rpcCall[map[string]interface{}](ctx, rpcURL, "eth_getTransactionReceipt", []interface{}{txHash})
+			receipt, err := rpcClient.TransactionReceipt(ctx, hash)
 			if err != nil || receipt == nil {
 				continue // Not mined yet
 			}
-			statusStr, _ := receipt["status"].(string)
-			if statusStr == "0x0" {
+			if receipt.Status != nil && uint64(*receipt.Status) == 0 {
 				return fmt.Errorf("transaction failed: %s", txHash)
 			}
 			return nil
@@ -878,15 +882,12 @@ type rpcError struct {
 
 // CallContract makes a contract call
 func (env *TestEnv) CallContract(to eth.Address, data []byte) ([]byte, error) {
-	params := []interface{}{
-		map[string]interface{}{
-			"to":   to.Pretty(),
-			"data": "0x" + hex.EncodeToString(data),
-		},
-		"latest",
+	params := rpc.CallParams{
+		To:   to,
+		Data: data,
 	}
 
-	resultHex, err := rpcCall[string](env.ctx, env.rpcURL, "eth_call", params)
+	resultHex, err := env.rpcClient.Call(env.ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -997,7 +998,7 @@ func encodeCollectorConstructorArgs(name, version string, controller eth.Address
 }
 
 // callSetContractProxy calls Controller.setContractProxy(bytes32 id, address contractAddress)
-func callSetContractProxy(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, controllerAddr eth.Address, name string, contractAddr eth.Address, controllerABI *eth.ABI) error {
+func callSetContractProxy(ctx context.Context, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, controllerAddr eth.Address, name string, contractAddr eth.Address, controllerABI *eth.ABI) error {
 	setContractProxyFn := controllerABI.FindFunctionByName("setContractProxy")
 	if setContractProxyFn == nil {
 		return fmt.Errorf("setContractProxy function not found in ABI")
@@ -1011,11 +1012,11 @@ func callSetContractProxy(ctx context.Context, rpcURL string, key *eth.PrivateKe
 		return fmt.Errorf("encoding setContractProxy call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &controllerAddr, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &controllerAddr, big.NewInt(0), data)
 }
 
 // callSetGraphToken calls MockStaking.setGraphToken(address token)
-func callSetGraphToken(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, stakingAddr eth.Address, tokenAddr eth.Address, stakingABI *eth.ABI) error {
+func callSetGraphToken(ctx context.Context, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, stakingAddr eth.Address, tokenAddr eth.Address, stakingABI *eth.ABI) error {
 	setGraphTokenFn := stakingABI.FindFunctionByName("setGraphToken")
 	if setGraphTokenFn == nil {
 		return fmt.Errorf("setGraphToken function not found in ABI")
@@ -1026,11 +1027,11 @@ func callSetGraphToken(ctx context.Context, rpcURL string, key *eth.PrivateKey, 
 		return fmt.Errorf("encoding setGraphToken call: %w", err)
 	}
 
-	return sendTransaction(ctx, rpcURL, key, chainID, &stakingAddr, big.NewInt(0), data)
+	return sendTransaction(ctx, rpcClient, key, chainID, &stakingAddr, big.NewInt(0), data)
 }
 
 // sendTransaction sends a transaction and waits for receipt
-func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, chainID uint64, to *eth.Address, value *big.Int, data []byte) error {
+func sendTransaction(ctx context.Context, rpcClient *rpc.Client, key *eth.PrivateKey, chainID uint64, to *eth.Address, value *big.Int, data []byte) error {
 	from := key.PublicKey().Address()
 
 	toStr := "contract_creation"
@@ -1042,20 +1043,18 @@ func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, ch
 	zlog.Debug("sending transaction", zap.Stringer("from", from), zap.String("to", toStr), zap.Uint64("chain_id", chainID))
 
 	// Get nonce
-	nonceHex, err := rpcCall[string](ctx, rpcURL, "eth_getTransactionCount", []interface{}{from.Pretty(), "latest"})
+	nonce, err := rpcClient.Nonce(ctx, from, nil)
 	if err != nil {
 		zlog.Error("failed to get nonce", zap.Error(err), zap.Stringer("from", from))
 		return fmt.Errorf("getting nonce: %w", err)
 	}
-	nonce, _ := new(big.Int).SetString(nonceHex[2:], 16)
-	zlog.Debug("got nonce", zap.Uint64("nonce", nonce.Uint64()))
+	zlog.Debug("got nonce", zap.Uint64("nonce", nonce))
 
 	// Get gas price
-	gasPriceHex, err := rpcCall[string](ctx, rpcURL, "eth_gasPrice", nil)
+	gasPrice, err := rpcClient.GasPrice(ctx)
 	if err != nil {
 		return fmt.Errorf("getting gas price: %w", err)
 	}
-	gasPrice, _ := new(big.Int).SetString(gasPriceHex[2:], 16)
 
 	gasLimit := uint64(500000)
 
@@ -1066,7 +1065,7 @@ func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, ch
 	}
 
 	zlog.Debug("signing transaction", zap.Uint64("chain_id", chainID))
-	signedTx, err := signer.SignTransaction(nonce.Uint64(), toBytes, value, gasLimit, gasPrice, data)
+	signedTx, err := signer.SignTransaction(nonce, toBytes, value, gasLimit, gasPrice, data)
 	if err != nil {
 		zlog.Error("failed to sign transaction", zap.Error(err), zap.Uint64("chain_id", chainID))
 		return fmt.Errorf("signing transaction: %w", err)
@@ -1074,14 +1073,14 @@ func sendTransaction(ctx context.Context, rpcURL string, key *eth.PrivateKey, ch
 
 	// Send
 	zlog.Debug("submitting transaction to RPC")
-	txHash, err := rpcCall[string](ctx, rpcURL, "eth_sendRawTransaction", []interface{}{"0x" + hex.EncodeToString(signedTx)})
+	txHash, err := rpcClient.SendRawTransaction(ctx, signedTx)
 	if err != nil {
 		zlog.Error("failed to send transaction", zap.Error(err))
 		return fmt.Errorf("sending transaction: %w", err)
 	}
 	zlog.Debug("transaction submitted", zap.String("tx_hash", txHash))
 
-	err = waitForReceipt(ctx, rpcURL, txHash)
+	err = waitForReceipt(ctx, rpcClient, txHash)
 	if err != nil {
 		zlog.Error("transaction failed", zap.Error(err), zap.String("tx_hash", txHash))
 	} else {
