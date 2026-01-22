@@ -14,7 +14,7 @@ import (
 
 // CallEncodeRAV calls encodeRAV(ReceiptAggregateVoucher calldata rav) which returns the EIP-712 hash
 func (env *TestEnv) CallEncodeRAV(rav *horizon.RAV) (eth.Hash, error) {
-	encodeRAVFn := env.ABIs.Collector.FindFunctionByName("encodeRAV")
+	encodeRAVFn := env.Collector.ABI.FindFunctionByName("encodeRAV")
 	if encodeRAVFn == nil {
 		return nil, fmt.Errorf("encodeRAV function not found in ABI")
 	}
@@ -36,7 +36,7 @@ func (env *TestEnv) CallEncodeRAV(rav *horizon.RAV) (eth.Hash, error) {
 		return nil, fmt.Errorf("encoding encodeRAV call: %w", err)
 	}
 
-	result, err := env.CallContract(env.CollectorAddress, data)
+	result, err := env.CallContract(env.Collector.Address, data)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (env *TestEnv) CallEncodeRAV(rav *horizon.RAV) (eth.Hash, error) {
 
 // CallRecoverRAVSigner calls recoverRAVSigner(SignedRAV calldata signedRAV) which returns the signer address
 func (env *TestEnv) CallRecoverRAVSigner(signedRAV *horizon.SignedRAV) (eth.Address, error) {
-	recoverRAVSignerFn := env.ABIs.Collector.FindFunctionByName("recoverRAVSigner")
+	recoverRAVSignerFn := env.Collector.ABI.FindFunctionByName("recoverRAVSigner")
 	if recoverRAVSignerFn == nil {
 		return nil, fmt.Errorf("recoverRAVSigner function not found in ABI")
 	}
@@ -82,7 +82,7 @@ func (env *TestEnv) CallRecoverRAVSigner(signedRAV *horizon.SignedRAV) (eth.Addr
 		return nil, fmt.Errorf("encoding recoverRAVSigner call: %w", err)
 	}
 
-	result, err := env.CallContract(env.CollectorAddress, data)
+	result, err := env.CallContract(env.Collector.Address, data)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func TestEIP712HashCompatibility(t *testing.T) {
 	env := SetupEnv(t)
 
 	// Create domain
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	// Create RAV with known values
 	var collectionID horizon.CollectionID
@@ -134,7 +134,7 @@ func TestEIP712HashCompatibility(t *testing.T) {
 func TestEIP712HashWithMetadata(t *testing.T) {
 	env := SetupEnv(t)
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
@@ -168,7 +168,7 @@ func TestSignatureRecoveryCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	expectedSigner := key.PublicKey().Address()
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe")[:])
@@ -218,7 +218,7 @@ func TestSignatureEncodingComparison(t *testing.T) {
 	key, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
@@ -237,7 +237,7 @@ func TestSignatureEncodingComparison(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get the encoding from recoverRAVSigner
-	recoverRAVSignerFn := env.ABIs.Collector.FindFunctionByName("recoverRAVSigner")
+	recoverRAVSignerFn := env.Collector.ABI.FindFunctionByName("recoverRAVSigner")
 	require.NotNil(t, recoverRAVSignerFn)
 
 	ravTuple := map[string]interface{}{
@@ -317,7 +317,7 @@ func TestReceiptSigningAndRecovery(t *testing.T) {
 
 	expectedSigner := key.PublicKey().Address()
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xabababababababababababababababababababababababababababababababab")[:])
@@ -346,7 +346,7 @@ func TestRAVAggregation(t *testing.T) {
 
 	senderAddr := senderKey.PublicKey().Address()
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
@@ -394,7 +394,7 @@ func TestSignatureMalleabilityProtection(t *testing.T) {
 	env := SetupEnv(t)
 
 	key, _ := eth.NewRandomPrivateKey()
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	receipt := &horizon.Receipt{
@@ -430,7 +430,7 @@ func TestIncrementalRAVAggregation(t *testing.T) {
 	aggregatorKey, _ := eth.NewRandomPrivateKey()
 
 	senderAddr := senderKey.PublicKey().Address()
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 	aggregator := horizon.NewAggregator(domain, aggregatorKey, []eth.Address{senderAddr, aggregatorKey.PublicKey().Address()})
 
 	var collectionID horizon.CollectionID
@@ -486,7 +486,7 @@ func TestReceiptTimestampValidation(t *testing.T) {
 	aggregatorKey, _ := eth.NewRandomPrivateKey()
 
 	senderAddr := senderKey.PublicKey().Address()
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 	aggregator := horizon.NewAggregator(domain, aggregatorKey, []eth.Address{senderAddr, aggregatorKey.PublicKey().Address()})
 
 	var collectionID horizon.CollectionID
@@ -536,7 +536,7 @@ func TestUnauthorizedSigner(t *testing.T) {
 	unauthorizedKey, _ := eth.NewRandomPrivateKey()
 	aggregatorKey, _ := eth.NewRandomPrivateKey()
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	aggregator := horizon.NewAggregator(domain, aggregatorKey, []eth.Address{authorizedKey.PublicKey().Address()})
 
@@ -564,7 +564,7 @@ func TestCollectionIDMismatch(t *testing.T) {
 	aggregatorKey, _ := eth.NewRandomPrivateKey()
 
 	senderAddr := senderKey.PublicKey().Address()
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 	aggregator := horizon.NewAggregator(domain, aggregatorKey, []eth.Address{senderAddr})
 
 	payer := senderAddr

@@ -72,7 +72,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 
 	// Create and sign RAV with the authorized signer
 	zlog.Debug("creating EIP-712 domain", zap.Uint64("chain_id", env.ChainID))
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")[:])
@@ -81,7 +81,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 		CollectionID:    collectionID,
 		Payer:           env.Payer.Address, // Payer is different from signer
 		ServiceProvider: env.ServiceProvider.Address,
-		DataService:     env.SubstreamsDataService,
+		DataService:     env.DataService.Address,
 		TimestampNs:     uint64(time.Now().UnixNano()),
 		ValueAggregate:  big.NewInt(1000000000000000000), // 1 GRT
 		Metadata:        []byte{},
@@ -156,7 +156,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	zlog.Debug("confirmed signer is not authorized")
 
 	// Create and sign RAV with unauthorized signer
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")[:])
@@ -165,7 +165,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 		CollectionID:    collectionID,
 		Payer:           env.Payer.Address,
 		ServiceProvider: env.ServiceProvider.Address,
-		DataService:     env.SubstreamsDataService,
+		DataService:     env.DataService.Address,
 		TimestampNs:     uint64(time.Now().UnixNano()),
 		ValueAggregate:  big.NewInt(1000000000000000000), // 1 GRT
 		Metadata:        []byte{},
@@ -244,7 +244,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 	zlog.Debug("confirmed signer is no longer authorized")
 
 	// Try to collect with revoked signer - should fail
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")[:])
@@ -253,7 +253,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 		CollectionID:    collectionID,
 		Payer:           env.Payer.Address,
 		ServiceProvider: env.ServiceProvider.Address,
-		DataService:     env.SubstreamsDataService,
+		DataService:     env.DataService.Address,
 		TimestampNs:     uint64(time.Now().UnixNano()),
 		ValueAggregate:  big.NewInt(1000000000000000000), // 1 GRT
 		Metadata:        []byte{},
@@ -282,55 +282,38 @@ func callAuthorizeSigner(env *TestEnv, signerKey *eth.PrivateKey) error {
 	// Generate proof with deadline 1 hour in the future
 	proofDeadline := uint64(time.Now().Add(1 * time.Hour).Unix())
 
-	proof, err := GenerateSignerProof(env.ChainID, env.CollectorAddress, proofDeadline, env.Payer.Address, signerKey)
+	proof, err := GenerateSignerProof(env.ChainID, env.Collector.Address, proofDeadline, env.Payer.Address, signerKey)
 	if err != nil {
 		return fmt.Errorf("generating signer proof: %w", err)
 	}
 
-	authorizeSignerFn := env.ABIs.Collector.FindFunctionByName("authorizeSigner")
-	if authorizeSignerFn == nil {
-		return fmt.Errorf("authorizeSigner function not found in ABI")
-	}
-
 	// Encode call: authorizeSigner(address signer, uint256 proofDeadline, bytes proof)
-	data, err := authorizeSignerFn.NewCall(signerAddr, new(big.Int).SetUint64(proofDeadline), proof).Encode()
+	data, err := env.Collector.CallData("authorizeSigner", signerAddr, new(big.Int).SetUint64(proofDeadline), proof)
 	if err != nil {
 		return fmt.Errorf("encoding authorizeSigner call: %w", err)
 	}
 
-	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.CollectorAddress, big.NewInt(0), data)
+	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
 }
 
 // callThawSigner calls Authorizable.thawSigner(address signer)
 // This starts the thawing process before revocation
 func callThawSigner(env *TestEnv, signer eth.Address) error {
-	thawSignerFn := env.ABIs.Collector.FindFunctionByName("thawSigner")
-	if thawSignerFn == nil {
-		return fmt.Errorf("thawSigner function not found in ABI")
-	}
-
-	data, err := thawSignerFn.NewCall(signer).Encode()
+	data, err := env.Collector.CallData("thawSigner", signer)
 	if err != nil {
 		return fmt.Errorf("encoding thawSigner call: %w", err)
 	}
-
-	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.CollectorAddress, big.NewInt(0), data)
+	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
 }
 
 // callRevokeAuthorizedSigner calls Authorizable.revokeAuthorizedSigner(address signer)
 // This completes the revocation after thawing period has passed
 func callRevokeAuthorizedSigner(env *TestEnv, signer eth.Address) error {
-	revokeSignerFn := env.ABIs.Collector.FindFunctionByName("revokeAuthorizedSigner")
-	if revokeSignerFn == nil {
-		return fmt.Errorf("revokeAuthorizedSigner function not found in ABI")
-	}
-
-	data, err := revokeSignerFn.NewCall(signer).Encode()
+	data, err := env.Collector.CallData("revokeAuthorizedSigner", signer)
 	if err != nil {
 		return fmt.Errorf("encoding revokeAuthorizedSigner call: %w", err)
 	}
-
-	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.CollectorAddress, big.NewInt(0), data)
+	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
 }
 
 // callRevokeSigner performs the two-step revoke flow: thaw + revoke
@@ -351,17 +334,12 @@ func callRevokeSigner(env *TestEnv, signer eth.Address) error {
 
 // CallIsAuthorized queries Authorizable.isAuthorized(address authorizer, address signer)
 func (env *TestEnv) CallIsAuthorized(authorizer eth.Address, signer eth.Address) (bool, error) {
-	isAuthorizedFn := env.ABIs.Collector.FindFunctionByName("isAuthorized")
-	if isAuthorizedFn == nil {
-		return false, fmt.Errorf("isAuthorized function not found in ABI")
-	}
-
-	data, err := isAuthorizedFn.NewCall(authorizer, signer).Encode()
+	data, err := env.Collector.CallData("isAuthorized", authorizer, signer)
 	if err != nil {
 		return false, fmt.Errorf("encoding isAuthorized call: %w", err)
 	}
 
-	result, err := env.CallContract(env.CollectorAddress, data)
+	result, err := env.CallContract(env.Collector.Address, data)
 	if err != nil {
 		return false, err
 	}

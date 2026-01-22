@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.4
 
 require (
-	github.com/streamingfast/eth-go v0.0.0-20260122003921-06f4f83a104e
+	github.com/streamingfast/eth-go v0.0.0-20260122151143-f04fd10948ac
 	github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0

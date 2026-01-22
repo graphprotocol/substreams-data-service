@@ -561,7 +561,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	// CREATE FLOW PARTICIPANTS
 	// ============================================================================
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b01")[:])
@@ -573,7 +573,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		signerKey,
 		env.Payer.Address,
 		env.ServiceProvider.Address,
-		env.SubstreamsDataService,
+		env.DataService.Address,
 		collectionID,
 	)
 
@@ -596,9 +596,9 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	provider := NewProvider(
 		"BlockProvider",
 		providerSidecar,
-		env.SubstreamsDataService,
+		env.DataService.Address,
 		env.ServiceProvider.PrivateKey,
-		env.CollectorAddress,
+		env.Collector.Address,
 		env.ServiceProvider.Address,
 	)
 
@@ -613,7 +613,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 
 	// Step 2: sc -> psc: startSession(escrow_account, RAV0)
 	zlog.Info("Step 2: startSession with initial RAV0")
-	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.PaymentsEscrow)
+	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.Escrow.Address)
 	require.NoError(t, err)
 	require.NotNil(t, sessionResp)
 	assert.NotNil(t, sessionResp.AcceptedRAV, "Provider should accept initial RAV")
@@ -723,7 +723,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		"Tokens collected should match RAV value")
 
 	// Verify on-chain state
-	collected, err := env.CallTokensCollected(env.SubstreamsDataService, collectionID, env.ServiceProvider.Address, env.Payer.Address)
+	collected, err := env.CallTokensCollected(env.DataService.Address, collectionID, env.ServiceProvider.Address, env.Payer.Address)
 	require.NoError(t, err)
 	assert.Equal(t, expectedValue.Uint64(), collected,
 		"On-chain tokensCollected should match expected value")
@@ -776,7 +776,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	err = callAuthorizeSigner(env, signerKey)
 	require.NoError(t, err)
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b02")[:])
@@ -788,7 +788,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		signerKey,
 		env.Payer.Address,
 		env.ServiceProvider.Address,
-		env.SubstreamsDataService,
+		env.DataService.Address,
 		collectionID,
 	)
 
@@ -808,14 +808,14 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	provider := NewProvider(
 		"BlockProvider",
 		providerSidecar,
-		env.SubstreamsDataService,
+		env.DataService.Address,
 		env.ServiceProvider.PrivateKey,
-		env.CollectorAddress,
+		env.Collector.Address,
 		env.ServiceProvider.Address,
 	)
 
 	// Start session
-	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.PaymentsEscrow)
+	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.Escrow.Address)
 	require.NoError(t, err)
 	consumerSidecar.ReceiveSessionResponse(sessionResp)
 
@@ -901,7 +901,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	err = callAuthorizeSigner(env, signerKey)
 	require.NoError(t, err)
 
-	domain := horizon.NewDomain(env.ChainID, env.CollectorAddress)
+	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
 	copy(collectionID[:], eth.MustNewHash("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b03")[:])
@@ -913,7 +913,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		signerKey,
 		env.Payer.Address,
 		env.ServiceProvider.Address,
-		env.SubstreamsDataService,
+		env.DataService.Address,
 		collectionID,
 	)
 
@@ -933,14 +933,14 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	provider := NewProvider(
 		"BlockProvider",
 		providerSidecar,
-		env.SubstreamsDataService,
+		env.DataService.Address,
 		env.ServiceProvider.PrivateKey,
-		env.CollectorAddress,
+		env.Collector.Address,
 		env.ServiceProvider.Address,
 	)
 
 	// Initialize session
-	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.PaymentsEscrow)
+	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.Escrow.Address)
 	require.NoError(t, err)
 	consumerSidecar.ReceiveSessionResponse(sessionResp)
 

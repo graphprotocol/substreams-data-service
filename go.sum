@@ -110,8 +110,8 @@ github.com/shirou/gopsutil/v4 v4.25.6 h1:kLysI2JsKorfaFPcYmcJqbzROzsBWEOAtw6A7dI
 github.com/shirou/gopsutil/v4 v4.25.6/go.mod h1:PfybzyydfZcN+JMMjkF6Zb8Mq1A/VcogFFg7hj50W9c=
 github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
-github.com/streamingfast/eth-go v0.0.0-20260122003921-06f4f83a104e h1:f/x2vCRxNAxgV5uNpDyZni6bbHTvm8Mn2yXJOxHtlGs=
-github.com/streamingfast/eth-go v0.0.0-20260122003921-06f4f83a104e/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
+github.com/streamingfast/eth-go v0.0.0-20260122151143-f04fd10948ac h1:2C41ppHE7uxthyp3qtFenlv7I2Lso9xb61PNOpbpLds=
+github.com/streamingfast/eth-go v0.0.0-20260122151143-f04fd10948ac/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
 github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641 h1:dI+b2TyFS0rJw1xVGzxBBvn/RrSgBpqM/RjwDInxEfo=
 github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641/go.mod h1:fJ5nP7ZSMB4MQQ6RM7cF+LiSQ43b5cVletcSUNL8z2M=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
