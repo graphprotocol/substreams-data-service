@@ -1,14 +1,12 @@
 package integration
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,7 +161,7 @@ func setupEnv() (*TestEnv, error) {
 
 	// Get dev account (funded by Anvil)
 	zlog.Debug("querying dev accounts")
-	accounts, err := rpcCall[[]string](ctx, rpcURL, "eth_accounts", nil)
+	accounts, err := rpc.Do[[]string](rpcClient, ctx, "eth_accounts", nil)
 	if err != nil || len(accounts) == 0 {
 		zlog.Error("failed to get dev accounts", zap.Error(err), zap.Int("num_accounts", len(accounts)))
 		anvilContainer.Terminate(ctx)
@@ -209,7 +207,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding deployer account")
 	fundAmount := new(big.Int)
 	fundAmount.SetString("10000000000000000000", 10) // 10 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, rpcClient, devAccount, deployerAddr, fundAmount); err != nil {
+	if err := fundFromDevAccount(ctx, rpcClient, devAccount, deployerAddr, fundAmount); err != nil {
 		zlog.Error("failed to fund deployer", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -221,7 +219,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding payer account")
 	fundAmount2 := new(big.Int)
 	fundAmount2.SetString("5000000000000000000", 10) // 5 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, rpcClient, devAccount, payerAddr, fundAmount2); err != nil {
+	if err := fundFromDevAccount(ctx, rpcClient, devAccount, payerAddr, fundAmount2); err != nil {
 		zlog.Error("failed to fund payer", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -233,7 +231,7 @@ func setupEnv() (*TestEnv, error) {
 	zlog.Debug("funding service provider account")
 	fundAmount3 := new(big.Int)
 	fundAmount3.SetString("2000000000000000000", 10) // 2 ETH
-	if err := fundFromDevAccount(ctx, rpcURL, rpcClient, devAccount, serviceProviderAddr, fundAmount3); err != nil {
+	if err := fundFromDevAccount(ctx, rpcClient, devAccount, serviceProviderAddr, fundAmount3); err != nil {
 		zlog.Error("failed to fund service provider", zap.Error(err))
 		anvilContainer.Terminate(ctx)
 		cancel()
@@ -698,7 +696,7 @@ func loadAllABIs() (*ABIs, error) {
 	}, nil
 }
 
-func fundFromDevAccount(ctx context.Context, rpcURL string, rpcClient *rpc.Client, from, to eth.Address, amount *big.Int) error {
+func fundFromDevAccount(ctx context.Context, rpcClient *rpc.Client, from, to eth.Address, amount *big.Int) error {
 	params := []interface{}{
 		map[string]interface{}{
 			"from":  from.Pretty(),
@@ -708,7 +706,7 @@ func fundFromDevAccount(ctx context.Context, rpcURL string, rpcClient *rpc.Clien
 	}
 
 	// eth_sendTransaction with unsigned tx is Anvil-specific (dev account only)
-	txHash, err := rpcCall[string](ctx, rpcURL, "eth_sendTransaction", params)
+	txHash, err := rpc.Do[string](rpcClient, ctx, "eth_sendTransaction", params)
 	if err != nil {
 		return fmt.Errorf("sending fund transaction: %w", err)
 	}
@@ -825,59 +823,6 @@ func waitForReceipt(ctx context.Context, rpcClient *rpc.Client, txHash string) e
 			return ctx.Err()
 		}
 	}
-}
-
-// rpcCall makes a JSON-RPC call
-func rpcCall[T any](ctx context.Context, rpcURL, method string, params interface{}) (T, error) {
-	var result T
-
-	reqBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  method,
-		"params":  params,
-		"id":      1,
-	}
-	if params == nil {
-		reqBody["params"] = []interface{}{}
-	}
-
-	bodyBytes, _ := json.Marshal(reqBody)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", rpcURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return result, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return result, err
-	}
-	defer resp.Body.Close()
-
-	var rpcResp struct {
-		Result T         `json:"result"`
-		Error  *rpcError `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return result, err
-	}
-
-	if rpcResp.Error != nil {
-		if rpcResp.Error.Data != "" {
-			return result, fmt.Errorf("RPC error %d: %s (data: %s)", rpcResp.Error.Code, rpcResp.Error.Message, rpcResp.Error.Data)
-		}
-		return result, fmt.Errorf("RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
-	}
-
-	return rpcResp.Result, nil
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    string `json:"data,omitempty"`
 }
 
 // CallContract makes a contract call
