@@ -99,12 +99,8 @@ func (env *TestEnv) CallRecoverRAVSigner(signedRAV *horizon.SignedRAV) (eth.Addr
 func TestEIP712HashCompatibility(t *testing.T) {
 	env := SetupEnv(t)
 
-	// Create domain
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	// Create RAV with known values
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xabababababababababababababababababababababababababababababababab")[:])
+	collectionID := mustNewCollectionID("0xabababababababababababababababababababababababababababababababab")
 
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,
@@ -135,11 +131,8 @@ func TestEIP712HashWithMetadata(t *testing.T) {
 	env := SetupEnv(t)
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
+	collectionID := mustNewCollectionID("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
-
-	// Test with non-empty metadata
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,
 		Payer:           eth.MustNewAddress("0x4444444444444444444444444444444444444444"),
@@ -163,15 +156,12 @@ func TestEIP712HashWithMetadata(t *testing.T) {
 func TestSignatureRecoveryCompatibility(t *testing.T) {
 	env := SetupEnv(t)
 
-	// Generate test key
 	key, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	expectedSigner := key.PublicKey().Address()
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe")[:])
+	collectionID := mustNewCollectionID("0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe")
 
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,
@@ -214,14 +204,11 @@ func TestSignatureRecoveryCompatibility(t *testing.T) {
 func TestSignatureEncodingComparison(t *testing.T) {
 	env := SetupEnv(t)
 
-	// Use a fixed key for reproducibility
 	key, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
+	collectionID := mustNewCollectionID("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,
@@ -314,13 +301,10 @@ func TestReceiptSigningAndRecovery(t *testing.T) {
 
 	key, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
-
 	expectedSigner := key.PublicKey().Address()
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xabababababababababababababababababababababababababababababababab")[:])
+	collectionID := mustNewCollectionID("0xabababababababababababababababababababababababababababababababab")
 
 	receipt := horizon.NewReceipt(
 		collectionID,
@@ -341,15 +325,14 @@ func TestReceiptSigningAndRecovery(t *testing.T) {
 func TestRAVAggregation(t *testing.T) {
 	env := SetupEnv(t)
 
-	senderKey, _ := eth.NewRandomPrivateKey()
-	aggregatorKey, _ := eth.NewRandomPrivateKey()
+	senderKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	aggregatorKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 
 	senderAddr := senderKey.PublicKey().Address()
-
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")[:])
+	collectionID := mustNewCollectionID("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 
 	payer := senderAddr
 	dataService := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
@@ -393,7 +376,8 @@ func TestRAVAggregation(t *testing.T) {
 func TestSignatureMalleabilityProtection(t *testing.T) {
 	env := SetupEnv(t)
 
-	key, _ := eth.NewRandomPrivateKey()
+	key, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 
 	var collectionID horizon.CollectionID
@@ -407,7 +391,8 @@ func TestSignatureMalleabilityProtection(t *testing.T) {
 		Value:           big.NewInt(1000),
 	}
 
-	signed, _ := horizon.Sign(domain, receipt, key)
+	signed, err := horizon.Sign(domain, receipt, key)
+	require.NoError(t, err)
 
 	malleatedSig := createMalleatedSignature(signed.Signature)
 	malleatedReceipt := &horizon.SignedReceipt{
@@ -415,19 +400,22 @@ func TestSignatureMalleabilityProtection(t *testing.T) {
 		Signature: malleatedSig,
 	}
 
-	aggregatorKey, _ := eth.NewRandomPrivateKey()
+	aggregatorKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 	aggregator := horizon.NewAggregator(domain, aggregatorKey, []eth.Address{key.PublicKey().Address()})
 
 	receipts := []*horizon.SignedReceipt{signed, malleatedReceipt}
-	_, err := aggregator.AggregateReceipts(receipts, nil)
+	_, err = aggregator.AggregateReceipts(receipts, nil)
 	require.ErrorIs(t, err, horizon.ErrDuplicateSignature)
 }
 
 func TestIncrementalRAVAggregation(t *testing.T) {
 	env := SetupEnv(t)
 
-	senderKey, _ := eth.NewRandomPrivateKey()
-	aggregatorKey, _ := eth.NewRandomPrivateKey()
+	senderKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	aggregatorKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 
 	senderAddr := senderKey.PublicKey().Address()
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
@@ -441,7 +429,7 @@ func TestIncrementalRAVAggregation(t *testing.T) {
 	var batch1 []*horizon.SignedReceipt
 	baseTimestamp := uint64(time.Now().UnixNano())
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		receipt := &horizon.Receipt{
 			CollectionID:    collectionID,
 			Payer:           payer,
@@ -451,7 +439,8 @@ func TestIncrementalRAVAggregation(t *testing.T) {
 			Nonce:           uint64(i),
 			Value:           big.NewInt(100),
 		}
-		signed, _ := horizon.Sign(domain, receipt, senderKey)
+		signed, err := horizon.Sign(domain, receipt, senderKey)
+		require.NoError(t, err)
 		batch1 = append(batch1, signed)
 	}
 
@@ -460,7 +449,7 @@ func TestIncrementalRAVAggregation(t *testing.T) {
 	require.Equal(t, big.NewInt(500), rav1.Message.ValueAggregate)
 
 	var batch2 []*horizon.SignedReceipt
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		receipt := &horizon.Receipt{
 			CollectionID:    collectionID,
 			Payer:           payer,
@@ -470,7 +459,8 @@ func TestIncrementalRAVAggregation(t *testing.T) {
 			Nonce:           uint64(100 + i),
 			Value:           big.NewInt(200),
 		}
-		signed, _ := horizon.Sign(domain, receipt, senderKey)
+		signed, err := horizon.Sign(domain, receipt, senderKey)
+		require.NoError(t, err)
 		batch2 = append(batch2, signed)
 	}
 
@@ -482,8 +472,10 @@ func TestIncrementalRAVAggregation(t *testing.T) {
 func TestReceiptTimestampValidation(t *testing.T) {
 	env := SetupEnv(t)
 
-	senderKey, _ := eth.NewRandomPrivateKey()
-	aggregatorKey, _ := eth.NewRandomPrivateKey()
+	senderKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	aggregatorKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 
 	senderAddr := senderKey.PublicKey().Address()
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
@@ -507,7 +499,8 @@ func TestReceiptTimestampValidation(t *testing.T) {
 			Nonce:           uint64(i),
 			Value:           big.NewInt(100),
 		}
-		signed, _ := horizon.Sign(domain, receipt, senderKey)
+		signed, err := horizon.Sign(domain, receipt, senderKey)
+		require.NoError(t, err)
 		initialReceipts = append(initialReceipts, signed)
 	}
 
@@ -523,7 +516,8 @@ func TestReceiptTimestampValidation(t *testing.T) {
 		Nonce:           uint64(999),
 		Value:           big.NewInt(100),
 	}
-	oldSigned, _ := horizon.Sign(domain, oldReceipt, senderKey)
+	oldSigned, err := horizon.Sign(domain, oldReceipt, senderKey)
+	require.NoError(t, err)
 
 	_, err = aggregator.AggregateReceipts([]*horizon.SignedReceipt{oldSigned}, rav1)
 	require.ErrorIs(t, err, horizon.ErrInvalidTimestamp)
@@ -532,12 +526,14 @@ func TestReceiptTimestampValidation(t *testing.T) {
 func TestUnauthorizedSigner(t *testing.T) {
 	env := SetupEnv(t)
 
-	authorizedKey, _ := eth.NewRandomPrivateKey()
-	unauthorizedKey, _ := eth.NewRandomPrivateKey()
-	aggregatorKey, _ := eth.NewRandomPrivateKey()
+	authorizedKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	unauthorizedKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	aggregatorKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
 	aggregator := horizon.NewAggregator(domain, aggregatorKey, []eth.Address{authorizedKey.PublicKey().Address()})
 
 	var collectionID horizon.CollectionID
@@ -551,17 +547,20 @@ func TestUnauthorizedSigner(t *testing.T) {
 		Value:           big.NewInt(100),
 	}
 
-	signed, _ := horizon.Sign(domain, receipt, unauthorizedKey)
+	signed, err := horizon.Sign(domain, receipt, unauthorizedKey)
+	require.NoError(t, err)
 
-	_, err := aggregator.AggregateReceipts([]*horizon.SignedReceipt{signed}, nil)
+	_, err = aggregator.AggregateReceipts([]*horizon.SignedReceipt{signed}, nil)
 	require.ErrorIs(t, err, horizon.ErrInvalidSigner)
 }
 
 func TestCollectionIDMismatch(t *testing.T) {
 	env := SetupEnv(t)
 
-	senderKey, _ := eth.NewRandomPrivateKey()
-	aggregatorKey, _ := eth.NewRandomPrivateKey()
+	senderKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+	aggregatorKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 
 	senderAddr := senderKey.PublicKey().Address()
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
@@ -571,11 +570,8 @@ func TestCollectionIDMismatch(t *testing.T) {
 	dataService := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
 	serviceProvider := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
 
-	var collectionID1 horizon.CollectionID
-	copy(collectionID1[:], eth.MustNewHash("0x1111111111111111111111111111111111111111111111111111111111111111")[:])
-
-	var collectionID2 horizon.CollectionID
-	copy(collectionID2[:], eth.MustNewHash("0x2222222222222222222222222222222222222222222222222222222222222222")[:])
+	collectionID1 := mustNewCollectionID("0x1111111111111111111111111111111111111111111111111111111111111111")
+	collectionID2 := mustNewCollectionID("0x2222222222222222222222222222222222222222222222222222222222222222")
 
 	receipt1 := &horizon.Receipt{
 		CollectionID:    collectionID1,
@@ -597,10 +593,12 @@ func TestCollectionIDMismatch(t *testing.T) {
 		Value:           big.NewInt(100),
 	}
 
-	signed1, _ := horizon.Sign(domain, receipt1, senderKey)
-	signed2, _ := horizon.Sign(domain, receipt2, senderKey)
+	signed1, err := horizon.Sign(domain, receipt1, senderKey)
+	require.NoError(t, err)
+	signed2, err := horizon.Sign(domain, receipt2, senderKey)
+	require.NoError(t, err)
 
-	_, err := aggregator.AggregateReceipts([]*horizon.SignedReceipt{signed1, signed2}, nil)
+	_, err = aggregator.AggregateReceipts([]*horizon.SignedReceipt{signed1, signed2}, nil)
 	require.ErrorIs(t, err, horizon.ErrCollectionMismatch)
 }
 

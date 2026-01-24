@@ -17,34 +17,17 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestAuthorizeSignerFlow", zap.Uint64("chain_id", env.ChainID))
 
-	// Setup escrow and provision
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
+	// Setup escrow, provision, and create a signer key (but don't authorize it yet - we test that below)
+	config := DefaultTestSetupConfig()
 
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err, "Failed to mint GRT")
+	require.NoError(t, callMintGRT(env, env.Payer.Address, config.EscrowAmount), "Failed to mint GRT")
+	require.NoError(t, callApproveGRT(env, config.EscrowAmount), "Failed to approve GRT")
+	require.NoError(t, callDepositEscrow(env, config.EscrowAmount), "Failed to deposit to escrow")
+	require.NoError(t, callSetProvisionTokensRange(env, big.NewInt(0)), "Failed to set provision tokens range")
+	require.NoError(t, callSetProvision(env, config.ProvisionAmount, 0, 0), "Failed to set provision")
+	require.NoError(t, callRegisterWithDataService(env), "Failed to register with data service")
 
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to approve GRT")
-
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to deposit to escrow")
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err, "Failed to set provision")
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create a signer key (different from payer)
-	zlog.Debug("creating signer key")
+	// Create a signer key (different from payer) - we'll authorize it manually for this test
 	signerKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	signerAddr := signerKey.PublicKey().Address()
@@ -71,15 +54,12 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	zlog.Debug("verified signer is now authorized")
 
 	// Create and sign RAV with the authorized signer
-	zlog.Debug("creating EIP-712 domain", zap.Uint64("chain_id", env.ChainID))
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")[:])
+	collectionID := mustNewCollectionID("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,
-		Payer:           env.Payer.Address, // Payer is different from signer
+		Payer:           env.Payer.Address,
 		ServiceProvider: env.ServiceProvider.Address,
 		DataService:     env.DataService.Address,
 		TimestampNs:     uint64(time.Now().UnixNano()),
@@ -115,34 +95,17 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestUnauthorizedSignerFails", zap.Uint64("chain_id", env.ChainID))
 
-	// Setup escrow and provision
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
+	// Setup escrow and provision (but don't authorize a signer)
+	config := DefaultTestSetupConfig()
 
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err, "Failed to mint GRT")
+	require.NoError(t, callMintGRT(env, env.Payer.Address, config.EscrowAmount), "Failed to mint GRT")
+	require.NoError(t, callApproveGRT(env, config.EscrowAmount), "Failed to approve GRT")
+	require.NoError(t, callDepositEscrow(env, config.EscrowAmount), "Failed to deposit to escrow")
+	require.NoError(t, callSetProvisionTokensRange(env, big.NewInt(0)), "Failed to set provision tokens range")
+	require.NoError(t, callSetProvision(env, config.ProvisionAmount, 0, 0), "Failed to set provision")
+	require.NoError(t, callRegisterWithDataService(env), "Failed to register with data service")
 
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to approve GRT")
-
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to deposit to escrow")
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err, "Failed to set provision")
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create an unauthorized signer key
-	zlog.Debug("creating unauthorized signer key")
+	// Create an unauthorized signer key (intentionally not calling callAuthorizeSigner)
 	unauthorizedKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
 	unauthorizedAddr := unauthorizedKey.PublicKey().Address()
@@ -157,9 +120,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 
 	// Create and sign RAV with unauthorized signer
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")[:])
+	collectionID := mustNewCollectionID("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,
@@ -190,40 +151,10 @@ func TestRevokeSignerFlow(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestRevokeSignerFlow", zap.Uint64("chain_id", env.ChainID))
 
-	// Setup escrow and provision
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
-
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err, "Failed to mint GRT")
-
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to approve GRT")
-
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to deposit to escrow")
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err, "Failed to set provision")
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create a signer key
-	signerKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-	signerAddr := signerKey.PublicKey().Address()
-
-	// Authorize the signer - requires signer's key to generate proof
-	err = callAuthorizeSigner(env, signerKey)
-	require.NoError(t, err, "Failed to authorize signer")
+	// Setup escrow, provision, register, and authorize signer
+	setup := SetupTestWithSigner(t, env, nil)
+	signerKey := setup.SignerKey
+	signerAddr := setup.SignerAddr
 
 	// Verify signer is authorized
 	isAuth, err := env.CallIsAuthorized(env.Payer.Address, signerAddr)
@@ -245,9 +176,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 	// Try to collect with revoked signer - should fail
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")[:])
+	collectionID := mustNewCollectionID("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
 
 	rav := &horizon.RAV{
 		CollectionID:    collectionID,

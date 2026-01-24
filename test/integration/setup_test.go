@@ -16,11 +16,19 @@ import (
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/eth-go/rpc"
 	"github.com/streamingfast/eth-go/signer/native"
+	horizon "github.com/streamingfast/horizon-go"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 )
+
+// mustNewCollectionID creates a CollectionID from a hex string or panics
+func mustNewCollectionID(hexStr string) horizon.CollectionID {
+	var collectionID horizon.CollectionID
+	copy(collectionID[:], eth.MustNewHash(hexStr)[:])
+	return collectionID
+}
 
 // Account represents an Ethereum account with its private key and address
 type Account struct {
@@ -786,6 +794,70 @@ func (env *TestEnv) Cleanup() {
 		env.anvilContainer.Terminate(env.ctx)
 	}
 	env.cancel()
+}
+
+// TestSetupConfig holds configuration for test setup
+type TestSetupConfig struct {
+	EscrowAmount    *big.Int // Amount to deposit in escrow (default: 10,000 GRT)
+	ProvisionAmount *big.Int // Amount for service provider provision (default: 1,000 GRT)
+}
+
+// DefaultTestSetupConfig returns the default test setup configuration
+func DefaultTestSetupConfig() *TestSetupConfig {
+	escrow := new(big.Int)
+	escrow.SetString("10000000000000000000000", 10) // 10,000 GRT
+
+	provision := new(big.Int)
+	provision.SetString("1000000000000000000000", 10) // 1,000 GRT
+
+	return &TestSetupConfig{
+		EscrowAmount:    escrow,
+		ProvisionAmount: provision,
+	}
+}
+
+// TestSetupResult holds the result of a test setup including the authorized signer
+type TestSetupResult struct {
+	SignerKey  *eth.PrivateKey
+	SignerAddr eth.Address
+}
+
+// SetupTestWithSigner performs common test setup: fund escrow, set provision, register, and authorize signer
+func SetupTestWithSigner(t *testing.T, env *TestEnv, config *TestSetupConfig) *TestSetupResult {
+	t.Helper()
+
+	if config == nil {
+		config = DefaultTestSetupConfig()
+	}
+
+	// Mint GRT to payer
+	require.NoError(t, callMintGRT(env, env.Payer.Address, config.EscrowAmount), "Failed to mint GRT")
+
+	// Approve escrow to spend GRT
+	require.NoError(t, callApproveGRT(env, config.EscrowAmount), "Failed to approve GRT")
+
+	// Deposit to escrow
+	require.NoError(t, callDepositEscrow(env, config.EscrowAmount), "Failed to deposit to escrow")
+
+	// Set provision tokens range (min = 0 for testing)
+	require.NoError(t, callSetProvisionTokensRange(env, big.NewInt(0)), "Failed to set provision tokens range")
+
+	// Set provision for service provider
+	require.NoError(t, callSetProvision(env, config.ProvisionAmount, 0, 0), "Failed to set provision")
+
+	// Register service provider with SubstreamsDataService
+	require.NoError(t, callRegisterWithDataService(env), "Failed to register with data service")
+
+	// Create and authorize signer
+	signerKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err, "Failed to create signer key")
+
+	require.NoError(t, callAuthorizeSigner(env, signerKey), "Failed to authorize signer")
+
+	return &TestSetupResult{
+		SignerKey:  signerKey,
+		SignerAddr: signerKey.PublicKey().Address(),
+	}
 }
 
 // callSetContractProxy calls Controller.setContractProxy(bytes32 id, address contractAddress)

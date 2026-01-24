@@ -516,55 +516,15 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestSubstreamsNetworkPaymentsFlow", zap.Uint64("chain_id", env.ChainID))
 
-	// ============================================================================
-	// SETUP: Fund escrow, set up provision, authorize signer
-	// ============================================================================
+	// Setup escrow, provision, register, and authorize signer
+	config := DefaultTestSetupConfig()
+	setup := SetupTestWithSigner(t, env, config)
+	signerKey := setup.SignerKey
+	signerAddr := setup.SignerAddr
 
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
-
-	// Mint GRT to payer
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err, "Failed to mint GRT")
-
-	// Approve escrow to spend GRT
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to approve GRT")
-
-	// Deposit to escrow
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to deposit to escrow")
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	// Set provision for service provider
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err, "Failed to set provision")
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create signer key and authorize it
-	signerKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-	signerAddr := signerKey.PublicKey().Address()
-
-	err = callAuthorizeSigner(env, signerKey)
-	require.NoError(t, err, "Failed to authorize signer")
-
-	// ============================================================================
-	// CREATE FLOW PARTICIPANTS
-	// ============================================================================
-
+	// Create flow participants
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b01")[:])
+	collectionID := mustNewCollectionID("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b01")
 
 	// Consumer Sidecar (sc)
 	consumerSidecar := NewConsumerSidecar(
@@ -583,7 +543,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		domain,
 		[]eth.Address{signerAddr},
 		collectionID,
-		tokensToDeposit, // Escrow balance for checking
+		config.EscrowAmount, // Escrow balance for checking
 		env,
 		env.Payer.Address,
 		env.ServiceProvider.PrivateKey,
@@ -608,7 +568,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 
 	// Step 1: ss -> sc: init()
 	zlog.Info("Step 1: Substreams init()")
-	err = substreamsClient.Init()
+	err := substreamsClient.Init()
 	require.NoError(t, err)
 
 	// Step 2: sc -> psc: startSession(escrow_account, RAV0)
@@ -743,43 +703,16 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 
 	// Setup with smaller escrow
 	smallEscrow := big.NewInt(50000000000000000) // 0.05 GRT - very small
-
-	// Mint and deposit small amount
-	err := callMintGRT(env, env.Payer.Address, smallEscrow)
-	require.NoError(t, err)
-
-	err = callApproveGRT(env, smallEscrow)
-	require.NoError(t, err)
-
-	err = callDepositEscrow(env, smallEscrow)
-	require.NoError(t, err)
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	// Setup provision
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10)
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err)
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create and authorize signer
-	signerKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-	signerAddr := signerKey.PublicKey().Address()
-
-	err = callAuthorizeSigner(env, signerKey)
-	require.NoError(t, err)
+	config := &TestSetupConfig{
+		EscrowAmount:    smallEscrow,
+		ProvisionAmount: DefaultTestSetupConfig().ProvisionAmount,
+	}
+	setup := SetupTestWithSigner(t, env, config)
+	signerKey := setup.SignerKey
+	signerAddr := setup.SignerAddr
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b02")[:])
+	collectionID := mustNewCollectionID("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b02")
 
 	// Create participants
 	consumerSidecar := NewConsumerSidecar(
@@ -868,43 +801,14 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestSubstreamsFlowMultipleRAVRequests", zap.Uint64("chain_id", env.ChainID))
 
-	// Setup
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
-
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err)
-
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err)
-
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err)
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10)
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err)
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	signerKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-	signerAddr := signerKey.PublicKey().Address()
-
-	err = callAuthorizeSigner(env, signerKey)
-	require.NoError(t, err)
+	// Setup escrow, provision, register, and authorize signer
+	config := DefaultTestSetupConfig()
+	setup := SetupTestWithSigner(t, env, config)
+	signerKey := setup.SignerKey
+	signerAddr := setup.SignerAddr
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b03")[:])
+	collectionID := mustNewCollectionID("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b03")
 
 	// Create participants
 	consumerSidecar := NewConsumerSidecar(
@@ -922,7 +826,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		domain,
 		[]eth.Address{signerAddr},
 		collectionID,
-		tokensToDeposit,
+		config.EscrowAmount,
 		env,
 		env.Payer.Address,
 		env.ServiceProvider.PrivateKey,

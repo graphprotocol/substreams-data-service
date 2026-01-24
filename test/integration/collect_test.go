@@ -22,59 +22,14 @@ func TestCollectRAV(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestCollectRAV", zap.Uint64("chain_id", env.ChainID))
 
-	// Setup: Fund payer's escrow with GRT tokens
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
+	// Setup escrow, provision, register, and authorize signer
+	setup := SetupTestWithSigner(t, env, nil)
+	signerKey := setup.SignerKey
+	signerAddr := setup.SignerAddr
 
-	// Mint GRT to payer
-	zlog.Debug("minting GRT to payer", zap.String("payer", env.Payer.Address.Pretty()), zap.String("amount", tokensToDeposit.String()))
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err, "Failed to mint GRT")
-
-	// Approve escrow to spend GRT
-	zlog.Debug("approving GRT for escrow", zap.String("escrow", env.Escrow.Address.Pretty()))
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to approve GRT")
-
-	// Deposit to escrow (using 3-level mapping: payer -> collector -> receiver)
-	zlog.Debug("depositing to escrow", zap.String("amount", tokensToDeposit.String()))
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to deposit to escrow")
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	// Setup: Set provision for service provider in staking contract
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	zlog.Debug("setting provision", zap.String("service_provider", env.ServiceProvider.Address.Pretty()), zap.String("amount", provisionTokens.String()))
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err, "Failed to set provision")
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create a dedicated signer key for signing RAVs
-	// In the original contract, self-authorization is NOT supported - we must explicitly authorize
-	signerKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-	signerAddr := signerKey.PublicKey().Address()
-
-	// Authorize the signer (payer authorizes the signer to sign RAVs on their behalf)
-	zlog.Debug("authorizing signer for RAV signing", zap.Stringer("payer", env.Payer.Address), zap.Stringer("signer", signerAddr))
-	err = callAuthorizeSigner(env, signerKey)
-	require.NoError(t, err, "Failed to authorize signer")
-
-	// Create domain
-	zlog.Debug("creating EIP-712 domain", zap.Uint64("chain_id", env.ChainID), zap.String("verifying_contract", env.Collector.Address.Pretty()))
+	// Create domain and RAV
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	// Create RAV
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")[:])
-
+	collectionID := mustNewCollectionID("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
 	valueAggregate := big.NewInt(1000000000000000000) // 1 GRT
 
 	rav := &horizon.RAV{
@@ -87,11 +42,9 @@ func TestCollectRAV(t *testing.T) {
 		Metadata:        []byte{},
 	}
 
-	// Sign RAV with authorized signer key (not payer key)
-	zlog.Debug("signing RAV with authorized signer key")
+	// Sign RAV with authorized signer key
 	signedRAV, err := horizon.Sign(domain, rav, signerKey)
 	require.NoError(t, err)
-	zlog.Debug("RAV signed successfully")
 
 	// Verify signature locally first
 	recoveredSigner, err := signedRAV.RecoverSigner(domain)
@@ -119,45 +72,12 @@ func TestCollectRAV(t *testing.T) {
 func TestCollectRAVIncremental(t *testing.T) {
 	env := SetupEnv(t)
 
-	// Setup escrow and provision
-	tokensToDeposit := new(big.Int)
-	tokensToDeposit.SetString("10000000000000000000000", 10) // 10,000 GRT
-
-	err := callMintGRT(env, env.Payer.Address, tokensToDeposit)
-	require.NoError(t, err, "Failed to mint GRT")
-
-	err = callApproveGRT(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to approve GRT")
-
-	err = callDepositEscrow(env, tokensToDeposit)
-	require.NoError(t, err, "Failed to deposit to escrow")
-
-	// Set up SubstreamsDataService: set provision tokens range (min = 0 for testing)
-	err = callSetProvisionTokensRange(env, big.NewInt(0))
-	require.NoError(t, err, "Failed to set provision tokens range")
-
-	provisionTokens := new(big.Int)
-	provisionTokens.SetString("1000000000000000000000", 10) // 1,000 GRT
-	err = callSetProvision(env, provisionTokens, 0, 0)
-	require.NoError(t, err, "Failed to set provision")
-
-	// Register service provider with SubstreamsDataService
-	err = callRegisterWithDataService(env)
-	require.NoError(t, err, "Failed to register with data service")
-
-	// Create a dedicated signer key for signing RAVs
-	// In the original contract, self-authorization is NOT supported - we must explicitly authorize
-	signerKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-
-	// Authorize the signer (payer authorizes the signer to sign RAVs on their behalf)
-	err = callAuthorizeSigner(env, signerKey)
-	require.NoError(t, err, "Failed to authorize signer")
+	// Setup escrow, provision, register, and authorize signer
+	setup := SetupTestWithSigner(t, env, nil)
+	signerKey := setup.SignerKey
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
-
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash("0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")[:])
+	collectionID := mustNewCollectionID("0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
 
 	// First RAV: 1 GRT
 	rav1 := &horizon.RAV{
