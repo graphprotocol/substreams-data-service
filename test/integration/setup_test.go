@@ -23,78 +23,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// mustNewCollectionID creates a CollectionID from a hex string or panics
-func mustNewCollectionID(hexStr string) horizon.CollectionID {
-	var collectionID horizon.CollectionID
-	copy(collectionID[:], eth.MustNewHash(hexStr)[:])
-	return collectionID
-}
-
-// Account represents an Ethereum account with its private key and address
-type Account struct {
-	Address    eth.Address
-	PrivateKey *eth.PrivateKey
-}
-
-// mustNewAccount creates a new random account or panics on failure
-func mustNewAccount() Account {
-	key, err := eth.NewRandomPrivateKey()
-	if err != nil {
-		panic(fmt.Sprintf("generating random private key: %v", err))
-	}
-	return Account{
-		Address:    key.PublicKey().Address(),
-		PrivateKey: key,
-	}
-}
-
-// Contract represents a deployed contract with its address and ABI
-type Contract struct {
-	Address eth.Address
-	ABI     *eth.ABI
-}
-
-// CallData encodes a contract method call with arguments and returns the calldata
-func (c *Contract) CallData(method string, args ...interface{}) ([]byte, error) {
-	fn := c.ABI.FindFunctionByName(method)
-	if fn == nil {
-		return nil, fmt.Errorf("%s function not found in ABI", method)
-	}
-
-	data, err := fn.NewCall(args...).Encode()
-	if err != nil {
-		return nil, fmt.Errorf("encoding %s call: %w", method, err)
-	}
-
-	return data, nil
-}
-
-// MustCallData encodes a contract method call and panics on error
-func (c *Contract) MustCallData(method string, args ...interface{}) []byte {
-	data, err := c.CallData(method, args...)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-// mustLoadContract loads a contract ABI from artifact and returns a Contract with zero address
-func mustLoadContract(name string) *Contract {
-	abi, err := loadABI(name)
-	if err != nil {
-		panic(fmt.Sprintf("loading %s ABI: %v", name, err))
-	}
-	return &Contract{ABI: abi}
-}
-
-// ContractArtifact represents a compiled Foundry contract
-type ContractArtifact struct {
-	ABI      json.RawMessage `json:"abi"`
-	Bytecode struct {
-		Object string `json:"object"`
-	} `json:"bytecode"`
-}
-
 // TestEnv holds the test environment state
 type TestEnv struct {
 	ctx            context.Context
@@ -244,41 +172,24 @@ func setupEnv() (*TestEnv, error) {
 		zap.Stringer("payer", payer.Address),
 	)
 
-	// Fund deployer from dev account (10 ETH)
-	zlog.Debug("funding deployer account")
+	// Fund all test accounts from dev account (10 ETH each)
 	fundAmount := new(big.Int)
 	fundAmount.SetString("10000000000000000000", 10) // 10 ETH
-	if err := fundFromDevAccount(ctx, rpcClient, devAccount, deployer.Address, fundAmount); err != nil {
-		zlog.Error("failed to fund deployer", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("funding deployer: %w", err)
-	}
-	zlog.Debug("deployer funded successfully", zap.String("amount", "10 ETH"))
 
-	// Fund payer account (5 ETH for gas)
-	zlog.Debug("funding payer account")
-	fundAmount2 := new(big.Int)
-	fundAmount2.SetString("5000000000000000000", 10) // 5 ETH
-	if err := fundFromDevAccount(ctx, rpcClient, devAccount, payer.Address, fundAmount2); err != nil {
-		zlog.Error("failed to fund payer", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("funding payer: %w", err)
+	for name, address := range map[string]eth.Address{
+		"deployer":         deployer.Address,
+		"payer":            payer.Address,
+		"service_provider": serviceProvider.Address,
+	} {
+		zlog.Debug("funding account", zap.String("name", name))
+		if err := fundFromDevAccount(ctx, rpcClient, devAccount, address, fundAmount); err != nil {
+			zlog.Error("failed to fund account", zap.String("name", name), zap.Error(err))
+			anvilContainer.Terminate(ctx)
+			cancel()
+			return nil, fmt.Errorf("funding %s: %w", name, err)
+		}
+		zlog.Debug("account funded successfully", zap.String("name", name), zap.String("amount", "10 ETH"))
 	}
-	zlog.Debug("payer funded successfully", zap.String("amount", "5 ETH"))
-
-	// Fund service provider account (2 ETH for gas to call SubstreamsDataService)
-	zlog.Debug("funding service provider account")
-	fundAmount3 := new(big.Int)
-	fundAmount3.SetString("2000000000000000000", 10) // 2 ETH
-	if err := fundFromDevAccount(ctx, rpcClient, devAccount, serviceProvider.Address, fundAmount3); err != nil {
-		zlog.Error("failed to fund service provider", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("funding service provider: %w", err)
-	}
-	zlog.Debug("service provider funded successfully", zap.String("amount", "2 ETH"))
 
 	chainID := chainIDInt.Uint64()
 
@@ -950,4 +861,76 @@ func sendTransaction(ctx context.Context, rpcClient *rpc.Client, key *eth.Privat
 		zlog.Debug("transaction confirmed", zap.String("tx_hash", txHash))
 	}
 	return err
+}
+
+// mustNewCollectionID creates a CollectionID from a hex string or panics
+func mustNewCollectionID(hexStr string) horizon.CollectionID {
+	var collectionID horizon.CollectionID
+	copy(collectionID[:], eth.MustNewHash(hexStr)[:])
+	return collectionID
+}
+
+// Account represents an Ethereum account with its private key and address
+type Account struct {
+	Address    eth.Address
+	PrivateKey *eth.PrivateKey
+}
+
+// mustNewAccount creates a new random account or panics on failure
+func mustNewAccount() Account {
+	key, err := eth.NewRandomPrivateKey()
+	if err != nil {
+		panic(fmt.Sprintf("generating random private key: %v", err))
+	}
+	return Account{
+		Address:    key.PublicKey().Address(),
+		PrivateKey: key,
+	}
+}
+
+// Contract represents a deployed contract with its address and ABI
+type Contract struct {
+	Address eth.Address
+	ABI     *eth.ABI
+}
+
+// CallData encodes a contract method call with arguments and returns the calldata
+func (c *Contract) CallData(method string, args ...interface{}) ([]byte, error) {
+	fn := c.ABI.FindFunctionByName(method)
+	if fn == nil {
+		return nil, fmt.Errorf("%s function not found in ABI", method)
+	}
+
+	data, err := fn.NewCall(args...).Encode()
+	if err != nil {
+		return nil, fmt.Errorf("encoding %s call: %w", method, err)
+	}
+
+	return data, nil
+}
+
+// MustCallData encodes a contract method call and panics on error
+func (c *Contract) MustCallData(method string, args ...interface{}) []byte {
+	data, err := c.CallData(method, args...)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// mustLoadContract loads a contract ABI from artifact and returns a Contract with zero address
+func mustLoadContract(name string) *Contract {
+	abi, err := loadABI(name)
+	if err != nil {
+		panic(fmt.Sprintf("loading %s ABI: %v", name, err))
+	}
+	return &Contract{ABI: abi}
+}
+
+// ContractArtifact represents a compiled Foundry contract
+type ContractArtifact struct {
+	ABI      json.RawMessage `json:"abi"`
+	Bytecode struct {
+		Object string `json:"object"`
+	} `json:"bytecode"`
 }
