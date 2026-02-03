@@ -8,8 +8,6 @@ type Config struct {
 	ChainID uint64
 	// BlockTime is the block time for Anvil in seconds (default: 1)
 	BlockTime uint64
-	// ForceBuild forces rebuilding contract artifacts even if they exist
-	ForceBuild bool
 	// EscrowAmount is the default amount to deposit in escrow (default: 10,000 GRT)
 	EscrowAmount *big.Int
 	// ProvisionAmount is the default provision amount (default: 1,000 GRT)
@@ -27,7 +25,6 @@ func DefaultConfig() *Config {
 	return &Config{
 		ChainID:         1337,
 		BlockTime:       1,
-		ForceBuild:      false,
 		EscrowAmount:    escrow,
 		ProvisionAmount: provision,
 	}
@@ -47,13 +44,6 @@ func WithChainID(chainID uint64) Option {
 func WithBlockTime(blockTime uint64) Option {
 	return func(c *Config) {
 		c.BlockTime = blockTime
-	}
-}
-
-// WithForceBuild forces rebuilding contract artifacts
-func WithForceBuild() Option {
-	return func(c *Config) {
-		c.ForceBuild = true
 	}
 }
 

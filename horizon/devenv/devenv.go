@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"os"
 	"sync"
 	"time"
 
@@ -85,22 +84,12 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		opt(config)
 	}
 
-	// Check for force build from environment variable
-	if os.Getenv("FORCE_CONTRACTS_BUILD") == "true" {
-		config.ForceBuild = true
-	}
-
-	// Ensure contract artifacts exist
-	if err := ensureContractArtifacts(config.ForceBuild); err != nil {
-		return nil, fmt.Errorf("ensuring contract artifacts: %w", err)
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 
 	zlog.Info("starting development environment")
 
 	// Pre-load all contracts (ABIs loaded now, addresses set after deployment)
-	zlog.Debug("pre-loading contract ABIs")
+	fmt.Print("Loading contract ABIs... ")
 	grtToken := mustLoadContract("MockGRTToken")
 	controller := mustLoadContract("MockController")
 	staking := mustLoadContract("MockStaking")
@@ -108,9 +97,10 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	graphPayments := mustLoadContract("GraphPayments")
 	collector := mustLoadContract("GraphTallyCollector")
 	dataService := mustLoadContract("SubstreamsDataService")
+	fmt.Println("OK")
 
 	// Start Anvil container
-	zlog.Debug("creating Anvil container request")
+	fmt.Print("Starting Anvil container... ")
 	anvilReq := testcontainers.ContainerRequest{
 		Image: "ghcr.io/foundry-rs/foundry:latest",
 		Cmd: []string{
@@ -121,17 +111,17 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 			WithStartupTimeout(60 * time.Second),
 	}
 
-	zlog.Debug("starting Anvil container")
 	anvilContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: anvilReq,
 		Started:          true,
 	})
 	if err != nil {
+		fmt.Println("FAILED")
 		zlog.Error("failed to start Anvil container", zap.Error(err))
 		cancel()
 		return nil, fmt.Errorf("starting anvil container: %w", err)
 	}
-	zlog.Info("Anvil container started successfully")
+	fmt.Println("OK")
 
 	mappedPort, err := anvilContainer.MappedPort(ctx, "8545/tcp")
 	if err != nil {
@@ -156,7 +146,7 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	rpcClient := rpc.NewClient(rpcURL)
 
 	// Wait for RPC to be responsive and get the chain ID
-	zlog.Info("querying chain ID from Anvil node")
+	fmt.Print("Waiting for Anvil RPC to be ready... ")
 	var chainIDInt *big.Int
 	for i := 0; i < 20; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -170,14 +160,15 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		}
 	}
 	if chainIDInt == nil {
+		fmt.Println("FAILED")
 		zlog.Error("failed to get valid chain ID after all retries")
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("failed to get valid chain ID after retries")
 	}
+	fmt.Println("OK")
 
 	// Get dev account (funded by Anvil)
-	zlog.Debug("querying dev accounts")
 	accounts, err := rpc.Do[[]string](rpcClient, ctx, "eth_accounts", nil)
 	if err != nil || len(accounts) == 0 {
 		zlog.Error("failed to get dev accounts", zap.Error(err), zap.Int("num_accounts", len(accounts)))
@@ -186,20 +177,16 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		return nil, fmt.Errorf("getting dev accounts: %w", err)
 	}
 	devAccount := eth.MustNewAddress(accounts[0])
-	zlog.Info("dev account retrieved", zap.Stringer("dev_account", devAccount))
 
 	// Create test accounts
-	zlog.Debug("generating test accounts")
+	fmt.Print("Creating test accounts... ")
 	deployer := mustNewAccount()
 	serviceProvider := mustNewAccount()
 	payer := mustNewAccount()
-	zlog.Debug("generated test accounts",
-		zap.Stringer("deployer", deployer.Address),
-		zap.Stringer("service_provider", serviceProvider.Address),
-		zap.Stringer("payer", payer.Address),
-	)
+	fmt.Println("OK")
 
 	// Fund all test accounts from dev account (10 ETH each)
+	fmt.Print("Funding test accounts... ")
 	fundAmount := new(big.Int)
 	fundAmount.SetString("10000000000000000000", 10) // 10 ETH
 
@@ -208,24 +195,26 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		"payer":            payer.Address,
 		"service_provider": serviceProvider.Address,
 	} {
-		zlog.Debug("funding account", zap.String("name", name))
 		if err := fundFromDevAccount(ctx, rpcClient, devAccount, address, fundAmount); err != nil {
+			fmt.Println("FAILED")
 			zlog.Error("failed to fund account", zap.String("name", name), zap.Error(err))
 			anvilContainer.Terminate(ctx)
 			cancel()
 			return nil, fmt.Errorf("funding %s: %w", name, err)
 		}
-		zlog.Debug("account funded successfully", zap.String("name", name), zap.String("amount", "10 ETH"))
 	}
+	fmt.Println("OK")
 
 	chainID := chainIDInt.Uint64()
 
 	// Deploy all contracts
+	fmt.Println("Deploying contracts...")
 	if err := deployAllContracts(ctx, rpcClient, chainID, deployer, grtToken, controller, staking, escrow, graphPayments, collector, dataService); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, err
 	}
+	fmt.Println("All contracts deployed successfully")
 
 	printEnvironmentInfo(rpcURL, chainID, deployer, serviceProvider, payer, grtToken, controller, staking, escrow, graphPayments, collector, dataService)
 
@@ -482,25 +471,37 @@ func callSetGraphToken(ctx context.Context, rpcClient *rpc.Client, key *eth.Priv
 func printEnvironmentInfo(rpcURL string, chainID uint64, deployer, serviceProvider, payer Account, grtToken, controller, staking, escrow, graphPayments, collector, dataService *Contract) {
 	fmt.Printf("\n")
 	fmt.Printf("============================================================\n")
-	fmt.Printf("Development environment ready - using ORIGINAL Graph Protocol contracts\n")
+	fmt.Printf("  Development Environment Ready\n")
 	fmt.Printf("============================================================\n")
-	fmt.Printf("  RPC URL: %s\n", rpcURL)
+	fmt.Printf("\n")
+	fmt.Printf("NETWORK:\n")
+	fmt.Printf("  RPC URL:  %s\n", rpcURL)
 	fmt.Printf("  Chain ID: %d\n", chainID)
-	fmt.Printf("  Deployer: %s\n", deployer.Address.Pretty())
 	fmt.Printf("\n")
 	fmt.Printf("ORIGINAL CONTRACTS (from horizon-contracts):\n")
-	fmt.Printf("  GraphPayments: %s\n", graphPayments.Address.Pretty())
-	fmt.Printf("  PaymentsEscrow: %s\n", escrow.Address.Pretty())
-	fmt.Printf("  GraphTallyCollector: %s\n", collector.Address.Pretty())
+	fmt.Printf("  GraphPayments:         %s\n", graphPayments.Address.Pretty())
+	fmt.Printf("  PaymentsEscrow:        %s\n", escrow.Address.Pretty())
+	fmt.Printf("  GraphTallyCollector:   %s\n", collector.Address.Pretty())
 	fmt.Printf("  SubstreamsDataService: %s\n", dataService.Address.Pretty())
 	fmt.Printf("\n")
 	fmt.Printf("MOCK CONTRACTS (test infrastructure):\n")
-	fmt.Printf("  MockGRTToken: %s\n", grtToken.Address.Pretty())
-	fmt.Printf("  MockController: %s\n", controller.Address.Pretty())
-	fmt.Printf("  MockStaking: %s\n", staking.Address.Pretty())
+	fmt.Printf("  MockGRTToken:    %s\n", grtToken.Address.Pretty())
+	fmt.Printf("  MockController:  %s\n", controller.Address.Pretty())
+	fmt.Printf("  MockStaking:     %s\n", staking.Address.Pretty())
 	fmt.Printf("\n")
-	fmt.Printf("TEST ACCOUNTS:\n")
-	fmt.Printf("  Service Provider: %s\n", serviceProvider.Address.Pretty())
-	fmt.Printf("  Payer: %s\n", payer.Address.Pretty())
+	fmt.Printf("TEST ACCOUNTS (funded with 10 ETH each):\n")
+	fmt.Printf("\n")
+	fmt.Printf("  Deployer:\n")
+	fmt.Printf("    Address:     %s\n", deployer.Address.Pretty())
+	fmt.Printf("    Private Key: 0x%s\n", deployer.PrivateKey.String())
+	fmt.Printf("\n")
+	fmt.Printf("  Service Provider:\n")
+	fmt.Printf("    Address:     %s\n", serviceProvider.Address.Pretty())
+	fmt.Printf("    Private Key: 0x%s\n", serviceProvider.PrivateKey.String())
+	fmt.Printf("\n")
+	fmt.Printf("  Payer:\n")
+	fmt.Printf("    Address:     %s\n", payer.Address.Pretty())
+	fmt.Printf("    Private Key: 0x%s\n", payer.PrivateKey.String())
+	fmt.Printf("\n")
 	fmt.Printf("============================================================\n")
 }

@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	. "github.com/streamingfast/cli"
+	"github.com/streamingfast/cli/sflags"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 
@@ -43,7 +46,6 @@ func main() {
 			Press Ctrl+C to shut down the environment.
 		`),
 		Flags(func(flags *pflag.FlagSet) {
-			flags.Bool("force-build", false, "Force rebuild contract artifacts even if they exist")
 			flags.Uint64("chain-id", 1337, "Chain ID for the Anvil network")
 			flags.Uint64("block-time", 1, "Block time in seconds for Anvil")
 		}),
@@ -53,24 +55,26 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	forceBuild, _ := cmd.Flags().GetBool("force-build")
-	chainID, _ := cmd.Flags().GetUint64("chain-id")
-	blockTime, _ := cmd.Flags().GetUint64("block-time")
+	chainID := sflags.MustGetUint64(cmd, "chain-id")
+	blockTime := sflags.MustGetUint64(cmd, "block-time")
+
+	// Validate Docker is accessible
+	fmt.Println("Checking Docker availability...")
+	if err := checkDocker(); err != nil {
+		return fmt.Errorf("Docker is not available: %w\nPlease ensure Docker is installed and running", err)
+	}
+	fmt.Println("Docker is available")
 
 	// Build options
 	opts := []devenv.Option{
 		devenv.WithChainID(chainID),
 		devenv.WithBlockTime(blockTime),
 	}
-	if forceBuild {
-		opts = append(opts, devenv.WithForceBuild())
-	}
 
-	zlog.Info("starting Substreams Data Service development environment",
-		zap.Uint64("chain_id", chainID),
-		zap.Uint64("block_time", blockTime),
-		zap.Bool("force_build", forceBuild),
-	)
+	fmt.Printf("\nStarting Substreams Data Service development environment...\n")
+	fmt.Printf("  Chain ID: %d\n", chainID)
+	fmt.Printf("  Block time: %d second(s)\n", blockTime)
+	fmt.Println()
 
 	// Start the environment
 	ctx := context.Background()
@@ -79,24 +83,26 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Print summary for easy access
-	zlog.Info("development environment is running",
-		zap.String("rpc_url", env.RPCURL),
-		zap.Uint64("chain_id", env.ChainID),
-		zap.Stringer("collector", env.Collector.Address),
-		zap.Stringer("data_service", env.DataService.Address),
-	)
+	// Print how to stop
+	fmt.Println("\nPress Ctrl+C to shut down the environment")
 
 	// Wait for interrupt
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	zlog.Info("press Ctrl+C to shut down")
 	<-sigCh
 
-	zlog.Info("shutting down development environment...")
+	fmt.Println("\nShutting down development environment...")
 	devenv.Shutdown()
-	zlog.Info("shutdown complete")
+	fmt.Println("Shutdown complete")
 
+	_ = env // Used above, silence unused warning
 	return nil
+}
+
+// checkDocker verifies that Docker is accessible
+func checkDocker() error {
+	cmd := exec.Command("docker", "info")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run()
 }

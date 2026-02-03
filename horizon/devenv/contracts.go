@@ -6,17 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon/devenv/contracts"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/eth-go/rpc"
 	"github.com/streamingfast/eth-go/signer/native"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 )
 
@@ -58,28 +53,26 @@ type ContractArtifact struct {
 	} `json:"bytecode"`
 }
 
-// mustLoadContract loads a contract ABI from artifact and returns a Contract with zero address
+// mustLoadContract loads a contract ABI from embedded artifact and returns a Contract with zero address
 func mustLoadContract(name string) *Contract {
-	abi, err := loadABI(name)
+	artifact, err := loadContractArtifact(name)
 	if err != nil {
-		panic(fmt.Sprintf("loading %s ABI: %v", name, err))
+		panic(fmt.Sprintf("loading %s artifact: %v", name, err))
 	}
+
+	abi, err := eth.ParseABIFromBytes(artifact.ABI)
+	if err != nil {
+		panic(fmt.Sprintf("parsing %s ABI: %v", name, err))
+	}
+
 	return &Contract{ABI: abi}
 }
 
-// loadABI loads an ABI from a Foundry contract artifact JSON file
-func loadABI(name string) (*eth.ABI, error) {
-	artifactPath := filepath.Join(getContractsDir(), name+".json")
-	return eth.ParseABI(artifactPath)
-}
-
-// loadContractArtifact loads a contract artifact (ABI and bytecode) from JSON
+// loadContractArtifact loads a contract artifact (ABI and bytecode) from embedded JSON
 func loadContractArtifact(name string) (*ContractArtifact, error) {
-	artifactPath := filepath.Join(getContractsDir(), name+".json")
-
-	data, err := os.ReadFile(artifactPath)
+	data, err := contracts.FS.ReadFile(name + ".json")
 	if err != nil {
-		return nil, fmt.Errorf("reading artifact file: %w", err)
+		return nil, fmt.Errorf("reading embedded artifact: %w", err)
 	}
 
 	var artifact ContractArtifact
@@ -185,100 +178,3 @@ func deployContract(ctx context.Context, rpcClient *rpc.Client, key *eth.Private
 	return contractAddr, nil
 }
 
-// ensureContractArtifacts checks if contract artifacts exist, builds them if needed
-func ensureContractArtifacts(forceBuild bool) error {
-	artifactsDir := getContractsDir()
-	collectorArtifact := filepath.Join(artifactsDir, "GraphTallyCollector.json")
-
-	// Check if artifacts already exist
-	if !forceBuild {
-		if _, err := os.Stat(collectorArtifact); err == nil {
-			zlog.Info("contract artifacts found, skipping build")
-			return nil
-		}
-	}
-
-	zlog.Info("building contract artifacts...")
-
-	// Ensure output directory exists
-	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
-		return fmt.Errorf("creating artifacts directory: %w", err)
-	}
-
-	// Run build container
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	buildDir := getBuildDir()
-
-	req := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:       buildDir,
-			Dockerfile:    "Dockerfile",
-			PrintBuildLog: true,
-		},
-		Mounts: testcontainers.ContainerMounts{
-			testcontainers.BindMount(artifactsDir, "/output"),
-		},
-		WaitingFor: wait.ForLog("Build complete!").
-			WithStartupTimeout(5 * time.Minute),
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		return fmt.Errorf("starting build container: %w", err)
-	}
-	defer container.Terminate(ctx)
-
-	// Wait for container to complete by checking state
-	for {
-		state, err := container.State(ctx)
-		if err != nil {
-			return fmt.Errorf("getting container state: %w", err)
-		}
-
-		if !state.Running {
-			if state.ExitCode != 0 {
-				return fmt.Errorf("build container exited with code %d", state.ExitCode)
-			}
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for build container")
-		case <-time.After(1 * time.Second):
-			continue
-		}
-	}
-
-	// Verify artifact was created
-	if _, err := os.Stat(collectorArtifact); err != nil {
-		return fmt.Errorf("artifact not found after build: %w", err)
-	}
-
-	zlog.Info("contract artifacts built successfully")
-	return nil
-}
-
-// getDevenvDir returns the absolute path to the devenv directory
-func getDevenvDir() string {
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("failed to get current file path")
-	}
-	return filepath.Dir(currentFile)
-}
-
-// getBuildDir returns the path to the build directory
-func getBuildDir() string {
-	return filepath.Join(getDevenvDir(), "build")
-}
-
-// getContractsDir returns the path to the contracts artifacts directory
-func getContractsDir() string {
-	return filepath.Join(filepath.Dir(getDevenvDir()), "testdata", "contracts")
-}

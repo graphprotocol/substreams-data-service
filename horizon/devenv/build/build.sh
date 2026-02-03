@@ -14,14 +14,18 @@ cat > remappings.txt << 'EOF'
 @graphprotocol/contracts/=/horizon-contracts/packages/contracts/
 EOF
 
+# Symlink the original Graph Protocol contracts into src/ so forge compiles them directly
+# This avoids the need for an import shim file
+ln -sf /horizon-contracts/packages/horizon/contracts/payments/PaymentsEscrow.sol ./src/
+ln -sf /horizon-contracts/packages/horizon/contracts/payments/GraphPayments.sol ./src/
+ln -sf /horizon-contracts/packages/horizon/contracts/payments/collectors/GraphTallyCollector.sol ./src/
+
 # Build all contracts
 forge build
 
 # List of contracts to extract
-# MOCKS (from TestMocks.sol) - These are our test infrastructure
-# ORIGINAL (from horizon-contracts via OriginalContracts.sol) - These are the real contracts we test against
 contracts=(
-    # Original contracts from horizon-contracts (via OriginalContracts.sol)
+    # Original contracts from horizon-contracts (symlinked into src/)
     "PaymentsEscrow"
     "GraphPayments"
     "GraphTallyCollector"
@@ -45,14 +49,10 @@ for contract in "${contracts[@]}"; do
     ARTIFACT_PATH=""
 
     # Check all possible source file locations
-    # IMPORTANT: Prefer TestMocks.sol for Mock* contracts since they have full implementations
     if [ -f "out/TestMocks.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/TestMocks.sol/${contract}.json"
-    elif [ -f "out/OriginalContracts.sol/${contract}.json" ]; then
-        ARTIFACT_PATH="out/OriginalContracts.sol/${contract}.json"
     elif [ -f "out/SubstreamsDataService.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/SubstreamsDataService.sol/${contract}.json"
-    # Original contracts may be compiled under their own source file names
     elif [ -f "out/PaymentsEscrow.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/PaymentsEscrow.sol/${contract}.json"
     elif [ -f "out/GraphPayments.sol/${contract}.json" ]; then
