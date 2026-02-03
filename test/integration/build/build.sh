@@ -5,7 +5,7 @@ echo "Building contract artifacts..."
 
 cd /build
 
-# Create remappings.txt with horizon-contracts paths (mounted at runtime)
+# Create remappings.txt with horizon-contracts paths
 cat > remappings.txt << 'EOF'
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
@@ -14,15 +14,7 @@ cat > remappings.txt << 'EOF'
 @graphprotocol/contracts/=/horizon-contracts/packages/contracts/
 EOF
 
-echo "Verifying horizon-contracts mount..."
-if [ ! -d "/horizon-contracts/packages/interfaces" ]; then
-    echo "ERROR: horizon-contracts not properly mounted at /horizon-contracts"
-    ls -la /horizon-contracts/ || echo "Mount point does not exist"
-    exit 1
-fi
-echo "horizon-contracts mount verified successfully"
-
-# Build contracts
+# Build all contracts
 forge build
 
 # List of contracts to extract

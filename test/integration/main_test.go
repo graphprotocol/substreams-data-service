@@ -58,9 +58,6 @@ func ensureContractArtifacts() error {
 	defer cancel()
 
 	buildDir := filepath.Join(testDir, "build")
-	// Mount horizon-contracts from project root
-	projectRoot := filepath.Join(testDir, "..", "..")
-	horizonContractsDir := filepath.Join(projectRoot, "horizon-contracts")
 
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
@@ -70,7 +67,6 @@ func ensureContractArtifacts() error {
 		},
 		Mounts: testcontainers.ContainerMounts{
 			testcontainers.BindMount(artifactsDir, "/output"),
-			testcontainers.BindMount(horizonContractsDir, "/horizon-contracts"),
 		},
 		WaitingFor: wait.ForLog("Build complete!").
 			WithStartupTimeout(5 * time.Minute),

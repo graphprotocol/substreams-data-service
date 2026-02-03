@@ -3,7 +3,7 @@ pragma solidity 0.8.27;
 
 /**
  * @title Original Contracts Wrapper
- * @notice This file imports ORIGINAL contracts from horizon-contracts submodule
+ * @notice This file imports ORIGINAL contracts from horizon-contracts
  *         so they get compiled alongside our test mocks.
  *
  * These are the REAL Graph Protocol contracts that we test against:
@@ -15,7 +15,7 @@ pragma solidity 0.8.27;
  * is compatible with the actual production contracts.
  */
 
-// Import original contracts from horizon-contracts submodule
+// Import original contracts from horizon-contracts (cloned during Docker build)
 // These will be compiled and their artifacts extracted for use in tests
 import {PaymentsEscrow} from "@graphprotocol/horizon/contracts/payments/PaymentsEscrow.sol";
 import {GraphPayments} from "@graphprotocol/horizon/contracts/payments/GraphPayments.sol";
