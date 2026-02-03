@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
-	horizon "github.com/streamingfast/horizon-go"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -683,7 +683,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 		"Tokens collected should match RAV value")
 
 	// Verify on-chain state
-	collected, err := env.CallTokensCollected(env.DataService.Address, collectionID, env.ServiceProvider.Address, env.Payer.Address)
+	collected, err := callTokensCollected(env, env.DataService.Address, collectionID, env.ServiceProvider.Address, env.Payer.Address)
 	require.NoError(t, err)
 	assert.Equal(t, expectedValue.Uint64(), collected,
 		"On-chain tokensCollected should match expected value")

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/streamingfast/eth-go"
-	"github.com/streamingfast/horizon-go"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 )
 
 func main() {

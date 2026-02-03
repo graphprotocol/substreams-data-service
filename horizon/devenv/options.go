@@ -1,0 +1,72 @@
+package devenv
+
+import "math/big"
+
+// Config holds configuration for the development environment
+type Config struct {
+	// ChainID is the chain ID for the Anvil network (default: 1337)
+	ChainID uint64
+	// BlockTime is the block time for Anvil in seconds (default: 1)
+	BlockTime uint64
+	// ForceBuild forces rebuilding contract artifacts even if they exist
+	ForceBuild bool
+	// EscrowAmount is the default amount to deposit in escrow (default: 10,000 GRT)
+	EscrowAmount *big.Int
+	// ProvisionAmount is the default provision amount (default: 1,000 GRT)
+	ProvisionAmount *big.Int
+}
+
+// DefaultConfig returns the default configuration
+func DefaultConfig() *Config {
+	escrow := new(big.Int)
+	escrow.SetString("10000000000000000000000", 10) // 10,000 GRT
+
+	provision := new(big.Int)
+	provision.SetString("1000000000000000000000", 10) // 1,000 GRT
+
+	return &Config{
+		ChainID:         1337,
+		BlockTime:       1,
+		ForceBuild:      false,
+		EscrowAmount:    escrow,
+		ProvisionAmount: provision,
+	}
+}
+
+// Option is a function that modifies a Config
+type Option func(*Config)
+
+// WithChainID sets the chain ID
+func WithChainID(chainID uint64) Option {
+	return func(c *Config) {
+		c.ChainID = chainID
+	}
+}
+
+// WithBlockTime sets the block time in seconds
+func WithBlockTime(blockTime uint64) Option {
+	return func(c *Config) {
+		c.BlockTime = blockTime
+	}
+}
+
+// WithForceBuild forces rebuilding contract artifacts
+func WithForceBuild() Option {
+	return func(c *Config) {
+		c.ForceBuild = true
+	}
+}
+
+// WithEscrowAmount sets the default escrow amount
+func WithEscrowAmount(amount *big.Int) Option {
+	return func(c *Config) {
+		c.EscrowAmount = amount
+	}
+}
+
+// WithProvisionAmount sets the default provision amount
+func WithProvisionAmount(amount *big.Int) Option {
+	return func(c *Config) {
+		c.ProvisionAmount = amount
+	}
+}

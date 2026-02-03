@@ -1,13 +1,12 @@
 package integration
 
 import (
-	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/streamingfast/eth-go"
-	horizon "github.com/streamingfast/horizon-go"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -35,7 +34,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 
 	// Verify signer is not authorized initially
 	zlog.Debug("checking initial authorization status")
-	isAuth, err := env.CallIsAuthorized(env.Payer.Address, signerAddr)
+	isAuth, err := env.IsAuthorized(env.Payer.Address, signerAddr)
 	require.NoError(t, err)
 	require.False(t, isAuth, "Signer should not be authorized initially")
 	zlog.Debug("verified signer not initially authorized")
@@ -48,7 +47,7 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 
 	// Verify signer is now authorized
 	zlog.Debug("checking authorization status after authorization")
-	isAuth, err = env.CallIsAuthorized(env.Payer.Address, signerAddr)
+	isAuth, err = env.IsAuthorized(env.Payer.Address, signerAddr)
 	require.NoError(t, err)
 	require.True(t, isAuth, "Signer should be authorized after authorizeSigner")
 	zlog.Debug("verified signer is now authorized")
@@ -113,7 +112,7 @@ func TestUnauthorizedSignerFails(t *testing.T) {
 
 	// Verify signer is not authorized
 	zlog.Debug("verifying signer is not authorized")
-	isAuth, err := env.CallIsAuthorized(env.Payer.Address, unauthorizedAddr)
+	isAuth, err := env.IsAuthorized(env.Payer.Address, unauthorizedAddr)
 	require.NoError(t, err)
 	require.False(t, isAuth)
 	zlog.Debug("confirmed signer is not authorized")
@@ -157,7 +156,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 	signerAddr := setup.SignerAddr
 
 	// Verify signer is authorized
-	isAuth, err := env.CallIsAuthorized(env.Payer.Address, signerAddr)
+	isAuth, err := env.IsAuthorized(env.Payer.Address, signerAddr)
 	require.NoError(t, err)
 	require.True(t, isAuth)
 
@@ -169,7 +168,7 @@ func TestRevokeSignerFlow(t *testing.T) {
 
 	// Verify signer is no longer authorized
 	zlog.Debug("verifying signer is no longer authorized")
-	isAuth, err = env.CallIsAuthorized(env.Payer.Address, signerAddr)
+	isAuth, err = env.IsAuthorized(env.Payer.Address, signerAddr)
 	require.NoError(t, err)
 	require.False(t, isAuth, "Signer should not be authorized after revoke")
 	zlog.Debug("confirmed signer is no longer authorized")
@@ -198,81 +197,4 @@ func TestRevokeSignerFlow(t *testing.T) {
 	zlog.Info("SubstreamsDataService.collect() correctly failed with revoked signer", zap.Error(err))
 
 	t.Logf("Collection correctly failed with revoked signer")
-}
-
-// ========== Contract Call Helpers ==========
-
-// callAuthorizeSigner calls Authorizable.authorizeSigner(address signer, uint256 proofDeadline, bytes proof)
-// This is the ORIGINAL contract signature that requires a cryptographic proof from the signer
-// Payer authorizes the signer to sign RAVs on their behalf
-func callAuthorizeSigner(env *TestEnv, signerKey *eth.PrivateKey) error {
-	signerAddr := signerKey.PublicKey().Address()
-
-	// Generate proof with deadline 1 hour in the future
-	proofDeadline := uint64(time.Now().Add(1 * time.Hour).Unix())
-
-	proof, err := GenerateSignerProof(env.ChainID, env.Collector.Address, proofDeadline, env.Payer.Address, signerKey)
-	if err != nil {
-		return fmt.Errorf("generating signer proof: %w", err)
-	}
-
-	// Encode call: authorizeSigner(address signer, uint256 proofDeadline, bytes proof)
-	data, err := env.Collector.CallData("authorizeSigner", signerAddr, new(big.Int).SetUint64(proofDeadline), proof)
-	if err != nil {
-		return fmt.Errorf("encoding authorizeSigner call: %w", err)
-	}
-
-	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
-}
-
-// callThawSigner calls Authorizable.thawSigner(address signer)
-// This starts the thawing process before revocation
-func callThawSigner(env *TestEnv, signer eth.Address) error {
-	data, err := env.Collector.CallData("thawSigner", signer)
-	if err != nil {
-		return fmt.Errorf("encoding thawSigner call: %w", err)
-	}
-	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
-}
-
-// callRevokeAuthorizedSigner calls Authorizable.revokeAuthorizedSigner(address signer)
-// This completes the revocation after thawing period has passed
-func callRevokeAuthorizedSigner(env *TestEnv, signer eth.Address) error {
-	data, err := env.Collector.CallData("revokeAuthorizedSigner", signer)
-	if err != nil {
-		return fmt.Errorf("encoding revokeAuthorizedSigner call: %w", err)
-	}
-	return sendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
-}
-
-// callRevokeSigner performs the two-step revoke flow: thaw + revoke
-// Since thawing period is 0 in our test setup, we can call both immediately
-func callRevokeSigner(env *TestEnv, signer eth.Address) error {
-	// Step 1: Thaw the signer
-	if err := callThawSigner(env, signer); err != nil {
-		return fmt.Errorf("thawing signer: %w", err)
-	}
-
-	// Step 2: Revoke the signer (thawing period is 0, so we can do this immediately)
-	if err := callRevokeAuthorizedSigner(env, signer); err != nil {
-		return fmt.Errorf("revoking signer: %w", err)
-	}
-
-	return nil
-}
-
-// CallIsAuthorized queries Authorizable.isAuthorized(address authorizer, address signer)
-func (env *TestEnv) CallIsAuthorized(authorizer eth.Address, signer eth.Address) (bool, error) {
-	data, err := env.Collector.CallData("isAuthorized", authorizer, signer)
-	if err != nil {
-		return false, fmt.Errorf("encoding isAuthorized call: %w", err)
-	}
-
-	result, err := env.CallContract(env.Collector.Address, data)
-	if err != nil {
-		return false, err
-	}
-
-	// Result is bool (32 bytes, last byte is 0 or 1)
-	return result[31] == 1, nil
 }

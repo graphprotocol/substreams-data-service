@@ -2,97 +2,14 @@ package integration
 
 import (
 	"encoding/hex"
-	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/streamingfast/eth-go"
-	horizon "github.com/streamingfast/horizon-go"
 	"github.com/stretchr/testify/require"
 )
-
-// CallEncodeRAV calls encodeRAV(ReceiptAggregateVoucher calldata rav) which returns the EIP-712 hash
-func (env *TestEnv) CallEncodeRAV(rav *horizon.RAV) (eth.Hash, error) {
-	encodeRAVFn := env.Collector.ABI.FindFunctionByName("encodeRAV")
-	if encodeRAVFn == nil {
-		return nil, fmt.Errorf("encodeRAV function not found in ABI")
-	}
-
-	// Build the RAV tuple using a map for eth-go's tuple encoding
-	// eth-go expects []byte for bytes32 and []byte for bytes types
-	ravTuple := map[string]interface{}{
-		"collectionId":    rav.CollectionID[:],
-		"payer":           rav.Payer,
-		"serviceProvider": rav.ServiceProvider,
-		"dataService":     rav.DataService,
-		"timestampNs":     rav.TimestampNs,
-		"valueAggregate":  rav.ValueAggregate,
-		"metadata":        rav.Metadata,
-	}
-
-	data, err := encodeRAVFn.NewCall(ravTuple).Encode()
-	if err != nil {
-		return nil, fmt.Errorf("encoding encodeRAV call: %w", err)
-	}
-
-	result, err := env.CallContract(env.Collector.Address, data)
-	if err != nil {
-		return nil, err
-	}
-
-	// eth.Hash is []byte, so just return the result directly
-	return eth.Hash(result), nil
-}
-
-// CallRecoverRAVSigner calls recoverRAVSigner(SignedRAV calldata signedRAV) which returns the signer address
-func (env *TestEnv) CallRecoverRAVSigner(signedRAV *horizon.SignedRAV) (eth.Address, error) {
-	recoverRAVSignerFn := env.Collector.ABI.FindFunctionByName("recoverRAVSigner")
-	if recoverRAVSignerFn == nil {
-		return nil, fmt.Errorf("recoverRAVSigner function not found in ABI")
-	}
-
-	rav := signedRAV.Message
-
-	// Build the nested SignedRAV tuple using maps for eth-go's tuple encoding
-	ravTuple := map[string]interface{}{
-		"collectionId":    rav.CollectionID[:],
-		"payer":           rav.Payer,
-		"serviceProvider": rav.ServiceProvider,
-		"dataService":     rav.DataService,
-		"timestampNs":     rav.TimestampNs,
-		"valueAggregate":  rav.ValueAggregate,
-		"metadata":        rav.Metadata,
-	}
-
-	// Convert signature from V+R+S (eth-go format) to R+S+V (Solidity ECDSA format)
-	sig := signedRAV.Signature
-	rsv := make([]byte, 65)
-	copy(rsv[0:32], sig[1:33])   // R (32 bytes)
-	copy(rsv[32:64], sig[33:65]) // S (32 bytes)
-	rsv[64] = sig[0]             // V (1 byte)
-
-	signedRAVTuple := map[string]interface{}{
-		"rav":       ravTuple,
-		"signature": rsv,
-	}
-
-	data, err := recoverRAVSignerFn.NewCall(signedRAVTuple).Encode()
-	if err != nil {
-		return nil, fmt.Errorf("encoding recoverRAVSigner call: %w", err)
-	}
-
-	result, err := env.CallContract(env.Collector.Address, data)
-	if err != nil {
-		return nil, err
-	}
-
-	// Result is padded to 32 bytes, address is in last 20 bytes
-	if len(result) >= 32 {
-		return eth.Address(result[12:32]), nil
-	}
-	return nil, fmt.Errorf("unexpected result length: %d", len(result))
-}
 
 // ========== On-Chain Verification Tests ==========
 
@@ -117,7 +34,7 @@ func TestEIP712HashCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get hash from contract
-	contractHash, err := env.CallEncodeRAV(rav)
+	contractHash, err := callEncodeRAV(env, rav)
 	require.NoError(t, err)
 
 	// They must match
@@ -146,7 +63,7 @@ func TestEIP712HashWithMetadata(t *testing.T) {
 	goHash, err := horizon.HashTypedData(domain, rav)
 	require.NoError(t, err)
 
-	contractHash, err := env.CallEncodeRAV(rav)
+	contractHash, err := callEncodeRAV(env, rav)
 	require.NoError(t, err)
 
 	require.Equal(t, goHash[:], contractHash[:],
@@ -185,14 +102,14 @@ func TestSignatureRecoveryCompatibility(t *testing.T) {
 	// First, let's verify the EIP-712 hash matches
 	goHash, err := horizon.HashTypedData(domain, rav)
 	require.NoError(t, err)
-	contractHash, err := env.CallEncodeRAV(rav)
+	contractHash, err := callEncodeRAV(env, rav)
 	require.NoError(t, err)
 	t.Logf("Go EIP-712 hash:       %s", hex.EncodeToString(goHash[:]))
 	t.Logf("Contract EIP-712 hash: %s", hex.EncodeToString(contractHash[:]))
 	require.Equal(t, goHash[:], contractHash[:], "Hash mismatch between Go and contract")
 
 	// Now try to recover on contract
-	contractRecovered, err := env.CallRecoverRAVSigner(signedRAV)
+	contractRecovered, err := callRecoverRAVSigner(env, signedRAV)
 	require.NoError(t, err, "recoverRAVSigner failed")
 
 	require.Equal(t, expectedSigner, contractRecovered,
