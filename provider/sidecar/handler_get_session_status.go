@@ -42,12 +42,40 @@ func (s *Sidecar) GetSessionStatus(
 		currentRavValue = big.NewInt(0)
 	}
 
+	// Query escrow balance from chain
+	var escrowBalance *big.Int
+	if balance, err := s.GetEscrowBalance(ctx, session.Payer); err != nil {
+		s.logger.Warn("failed to query escrow balance", zap.Error(err))
+		escrowBalance = big.NewInt(0)
+	} else if balance != nil {
+		escrowBalance = balance
+	} else {
+		escrowBalance = big.NewInt(0)
+	}
+
+	// Calculate funds sufficiency: escrow balance > accumulated usage - current RAV
+	// (RAV represents already committed payment, so we only need funds for uncommitted usage)
+	uncommittedUsage := new(big.Int).Sub(session.TotalCost, currentRavValue)
+	if uncommittedUsage.Sign() < 0 {
+		uncommittedUsage = big.NewInt(0)
+	}
+	fundsSufficient := escrowBalance.Cmp(uncommittedUsage) >= 0
+
+	// Calculate estimated blocks remaining based on price and available balance
+	var estimatedBlocksRemaining uint64
+	if session.PricePerBlock != nil && session.PricePerBlock.Sign() > 0 {
+		availableFunds := new(big.Int).Sub(escrowBalance, uncommittedUsage)
+		if availableFunds.Sign() > 0 {
+			estimatedBlocksRemaining = new(big.Int).Div(availableFunds, session.PricePerBlock).Uint64()
+		}
+	}
+
 	paymentStatus := &commonv1.PaymentStatus{
 		CurrentRavValue:          commonv1.BigIntFromNative(currentRavValue),
 		AccumulatedUsageValue:    commonv1.BigIntFromNative(session.TotalCost),
-		EscrowBalance:            nil,  // TODO: Query from chain
-		FundsSufficient:          true, // TODO: Calculate based on escrow balance
-		EstimatedBlocksRemaining: 0,    // TODO: Calculate based on price and balance
+		EscrowBalance:            commonv1.BigIntFromNative(escrowBalance),
+		FundsSufficient:          fundsSufficient,
+		EstimatedBlocksRemaining: estimatedBlocksRemaining,
 	}
 
 	response := &providerv1.GetSessionStatusResponse{

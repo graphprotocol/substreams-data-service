@@ -1,0 +1,46 @@
+title substreams network payments (Dec 10 2025)
+participant "substreams" as ss
+participant "sidecar" as sc
+
+participant "provider sidecar" as psc
+participant "provider" as p
+
+ss->sc: init()
+sc->psc: startSession(escrow_account, RAV0)
+note left of psc #yellow: can we emit à 0-value RAV ?\nIt may be used as start for rolling aggregates
+note left of psc #lightblue: first escrow funds validation here\nincluding check for existing RAVs
+
+psc->sc: useThis(RAVx)\n(either the same or another)
+sc->ss: RAVx
+
+ss->p: Blocks()\nheader payment=RAVx
+p->psc:validate RAVx
+psc->p:OK
+p->ss:sessionInit(required_blocks_preproc=1000000)
+loop
+p->ss:data...
+p->psc:sent(usage)
+note right of ss #yellow:hard to validate the processedBlocks
+ss->sc:received(usage)
+
+end loop
+psc->sc:requestRAV(RAVx,usage)
+
+sc->psc:signed(RAVx)
+psc->p: Continue() or Stop()
+
+
+loop #lightblue
+note right of sc #yellow: hard to control the "funding" based on promised RAVs\nknown only by the provider accross multiple streams
+psc-[#blue]->blockchain: checkEscrowFunds()
+psc-[#blue]->psc: checkSumOfAllKnownRavs()
+
+psc-[#blue]->sc:NeedMoreFunds(RAVx,RAVy,RAVz...)
+psc-[#blue]->p: Continue() or Stop()
+end loop
+
+p->ss: end()
+p->psc: end(usage)
+ss->sc:lastUsage
+psc->sc:requestRAV(RAVx,usage)
+sc->psc:signed(RAVx)

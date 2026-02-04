@@ -48,6 +48,8 @@ type Session struct {
 
 	// Price configuration (set by provider)
 	PricePerBlock *big.Int
+	PricePerByte  *big.Int
+	PricingConfig *PricingConfig
 }
 
 // NewSession creates a new session with a generated ID
@@ -127,6 +129,44 @@ func (s *Session) IsActive() bool {
 	defer s.mu.RUnlock()
 
 	return s.State == SessionStateActive
+}
+
+// SetPricingConfig sets the pricing configuration for the session
+func (s *Session) SetPricingConfig(config *PricingConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.PricingConfig = config
+	if config != nil {
+		if config.PricePerBlock != nil {
+			s.PricePerBlock = config.PricePerBlock.Wei()
+		}
+		if config.PricePerByte != nil {
+			s.PricePerByte = config.PricePerByte.Wei()
+		}
+	}
+}
+
+// CalculateUsageCost calculates the cost for given usage using session's pricing config
+func (s *Session) CalculateUsageCost(blocksProcessed, bytesTransferred uint64) *big.Int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.PricingConfig != nil {
+		return s.PricingConfig.CalculateUsageCost(blocksProcessed, bytesTransferred)
+	}
+
+	// Fallback to manual calculation
+	total := big.NewInt(0)
+	if s.PricePerBlock != nil {
+		blockCost := new(big.Int).Mul(s.PricePerBlock, big.NewInt(int64(blocksProcessed)))
+		total.Add(total, blockCost)
+	}
+	if s.PricePerByte != nil {
+		byteCost := new(big.Int).Mul(s.PricePerByte, big.NewInt(int64(bytesTransferred)))
+		total.Add(total, byteCost)
+	}
+	return total
 }
 
 // ToSessionInfo converts to proto SessionInfo

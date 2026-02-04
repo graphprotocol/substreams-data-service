@@ -333,3 +333,23 @@ func MustNewCollectionID(hexStr string) horizon.CollectionID {
 	copy(collectionID[:], eth.MustNewHash(hexStr)[:])
 	return collectionID
 }
+
+// GetEscrowBalance returns the escrow balance for a payer -> receiver via collector
+func (env *Env) GetEscrowBalance(payer, receiver eth.Address) (*big.Int, error) {
+	data, err := env.Escrow.CallData("getBalance", payer, env.Collector.Address, receiver)
+	if err != nil {
+		return nil, fmt.Errorf("encoding getBalance call: %w", err)
+	}
+
+	result, err := env.CallContract(env.Escrow.Address, data)
+	if err != nil {
+		return nil, fmt.Errorf("calling getBalance: %w", err)
+	}
+
+	// Result is uint256 (32 bytes)
+	if len(result) != 32 {
+		return nil, fmt.Errorf("unexpected result length: %d", len(result))
+	}
+
+	return new(big.Int).SetBytes(result), nil
+}

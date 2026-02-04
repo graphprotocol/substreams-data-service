@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"context"
+	"math/big"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -35,6 +36,16 @@ type Sidecar struct {
 	// Domain for signature verification
 	domain *horizon.Domain
 
+	// Contract addresses for on-chain queries
+	collectorAddr eth.Address
+	escrowAddr    eth.Address
+
+	// Escrow balance querier
+	escrowQuerier *sidecar.EscrowQuerier
+
+	// Pricing configuration
+	pricingConfig *sidecar.PricingConfig
+
 	// Accepted signer addresses (authorized by payers)
 	acceptedSigners map[string]bool
 }
@@ -43,6 +54,10 @@ type Config struct {
 	ListenAddr      string
 	ServiceProvider eth.Address
 	Domain          *horizon.Domain
+	CollectorAddr   eth.Address
+	EscrowAddr      eth.Address
+	RPCEndpoint     string
+	PricingConfig   *sidecar.PricingConfig
 	AcceptedSigners []eth.Address
 }
 
@@ -52,6 +67,16 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		signerMap[addr.Pretty()] = true
 	}
 
+	var escrowQuerier *sidecar.EscrowQuerier
+	if config.RPCEndpoint != "" && config.EscrowAddr != nil {
+		escrowQuerier = sidecar.NewEscrowQuerier(config.RPCEndpoint, config.EscrowAddr)
+	}
+
+	pricingConfig := config.PricingConfig
+	if pricingConfig == nil {
+		pricingConfig = sidecar.DefaultPricingConfig()
+	}
+
 	return &Sidecar{
 		Shutter:         shutter.New(),
 		listenAddr:      config.ListenAddr,
@@ -59,8 +84,20 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		sessions:        sidecar.NewSessionManager(),
 		serviceProvider: config.ServiceProvider,
 		domain:          config.Domain,
+		collectorAddr:   config.CollectorAddr,
+		escrowAddr:      config.EscrowAddr,
+		escrowQuerier:   escrowQuerier,
+		pricingConfig:   pricingConfig,
 		acceptedSigners: signerMap,
 	}
+}
+
+// GetEscrowBalance queries the on-chain escrow balance for a payer
+func (s *Sidecar) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big.Int, error) {
+	if s.escrowQuerier == nil {
+		return nil, nil // No RPC configured
+	}
+	return s.escrowQuerier.GetBalance(ctx, payer, s.collectorAddr, s.serviceProvider)
 }
 
 // AddAcceptedSigner adds a signer to the accepted list

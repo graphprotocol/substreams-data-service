@@ -30,7 +30,7 @@ var consumerSidecarCmd = Command(
 	`),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.String("grpc-listen-addr", ":9002", "gRPC server listen address")
-		flags.String("signer-key", "", "Private key for signing RAVs (hex, required)")
+		flags.String("signer-private-key", "", "Private key for signing RAVs (hex, required)")
 		flags.Uint64("chain-id", 1337, "Chain ID for EIP-712 domain")
 		flags.String("collector-address", "", "Collector contract address for EIP-712 domain (required)")
 	}),
@@ -38,13 +38,13 @@ var consumerSidecarCmd = Command(
 
 func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 	listenAddr := sflags.MustGetString(cmd, "grpc-listen-addr")
-	signerKeyHex := sflags.MustGetString(cmd, "signer-key")
+	signerKeyHex := sflags.MustGetString(cmd, "signer-private-key")
 	chainID := sflags.MustGetUint64(cmd, "chain-id")
 	collectorHex := sflags.MustGetString(cmd, "collector-address")
 
-	cli.Ensure(signerKeyHex != "", "<signer-key> is required")
+	cli.Ensure(signerKeyHex != "", "<signer-private-key> is required")
 	signerKey, err := eth.NewPrivateKey(signerKeyHex)
-	cli.NoError(err, "invalid <signer-key> %q", signerKeyHex)
+	cli.NoError(err, "invalid <signer-private-key> %q", signerKeyHex)
 
 	cli.Ensure(collectorHex != "", "<collector-address> is required")
 	collectorAddr, err := eth.NewAddress(collectorHex)

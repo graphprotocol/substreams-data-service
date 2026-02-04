@@ -26,12 +26,14 @@ func main() {
 			"provider",
 			"Provider-side commands",
 			providerSidecarCmd,
+			providerFakeOperatorCmd,
 		),
 
 		Group(
 			"consumer",
 			"Consumer-side commands",
 			consumerSidecarCmd,
+			consumerFakeClientCmd,
 		),
 	)
 }

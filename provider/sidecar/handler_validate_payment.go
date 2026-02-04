@@ -82,6 +82,17 @@ func (s *Sidecar) ValidatePayment(
 	// Store the RAV
 	session.SetRAV(signedRAV)
 
+	// Set pricing config on session
+	session.SetPricingConfig(s.pricingConfig)
+
+	// Query escrow balance from chain
+	var availableBalance *commonv1.BigInt
+	if escrowBalance, err := s.GetEscrowBalance(ctx, payer); err != nil {
+		s.logger.Warn("failed to query escrow balance", zap.Error(err))
+	} else if escrowBalance != nil {
+		availableBalance = commonv1.BigIntFromNative(escrowBalance)
+	}
+
 	// Build response
 	response := &providerv1.ValidatePaymentResponse{
 		Valid:         true,
@@ -92,7 +103,7 @@ func (s *Sidecar) ValidatePayment(
 			Receiver:    commonv1.AddressFromEth(s.serviceProvider),
 			DataService: commonv1.AddressFromEth(dataService),
 		},
-		AvailableBalance: nil, // TODO: Query escrow balance from chain
+		AvailableBalance: availableBalance,
 	}
 
 	s.logger.Info("ValidatePayment succeeded",
