@@ -3,6 +3,7 @@ package devenv
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/big"
 	"sync"
 	"time"
@@ -39,6 +40,9 @@ type Env struct {
 	Deployer        Account
 	ServiceProvider Account
 	Payer           Account
+	User1           Account
+	User2           Account
+	User3           Account
 }
 
 var (
@@ -84,12 +88,14 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		opt(config)
 	}
 
+	report := config.Reporter.ReportProgress
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 
 	zlog.Info("starting development environment")
 
 	// Pre-load all contracts (ABIs loaded now, addresses set after deployment)
-	fmt.Print("Loading contract ABIs... ")
+	report("Loading contract ABIs...")
 	grtToken := mustLoadContract("MockGRTToken")
 	controller := mustLoadContract("MockController")
 	staking := mustLoadContract("MockStaking")
@@ -97,10 +103,9 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	graphPayments := mustLoadContract("GraphPayments")
 	collector := mustLoadContract("GraphTallyCollector")
 	dataService := mustLoadContract("SubstreamsDataService")
-	fmt.Println("OK")
 
 	// Start Anvil container
-	fmt.Print("Starting Anvil container... ")
+	report("Starting Anvil container...")
 	anvilReq := testcontainers.ContainerRequest{
 		Image: "ghcr.io/foundry-rs/foundry:latest",
 		Cmd: []string{
@@ -116,12 +121,10 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		Started:          true,
 	})
 	if err != nil {
-		fmt.Println("FAILED")
 		zlog.Error("failed to start Anvil container", zap.Error(err))
 		cancel()
 		return nil, fmt.Errorf("starting anvil container: %w", err)
 	}
-	fmt.Println("OK")
 
 	mappedPort, err := anvilContainer.MappedPort(ctx, "8545/tcp")
 	if err != nil {
@@ -146,7 +149,7 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	rpcClient := rpc.NewClient(rpcURL)
 
 	// Wait for RPC to be responsive and get the chain ID
-	fmt.Print("Waiting for Anvil RPC to be ready... ")
+	report("Waiting for Anvil RPC to be ready...")
 	var chainIDInt *big.Int
 	for i := 0; i < 20; i++ {
 		time.Sleep(500 * time.Millisecond)
@@ -160,13 +163,11 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		}
 	}
 	if chainIDInt == nil {
-		fmt.Println("FAILED")
 		zlog.Error("failed to get valid chain ID after all retries")
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, fmt.Errorf("failed to get valid chain ID after retries")
 	}
-	fmt.Println("OK")
 
 	// Get dev account (funded by Anvil)
 	accounts, err := rpc.Do[[]string](rpcClient, ctx, "eth_accounts", nil)
@@ -178,47 +179,47 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	}
 	devAccount := eth.MustNewAddress(accounts[0])
 
-	// Create test accounts
-	fmt.Print("Creating test accounts... ")
-	deployer := mustNewAccount()
-	serviceProvider := mustNewAccount()
-	payer := mustNewAccount()
-	fmt.Println("OK")
+	// Create test accounts (deterministic keys for reproducibility)
+	report("Creating test accounts...")
+	deployer := mustAccountFromHex("1aa5d8f9a42ba0b9439c7034d24e93619f67af22a9ab15be9e4ce7eadddb5143")
+	serviceProvider := mustAccountFromHex("41942233cf1d78b6e3262f1806f8da36aafa24a941031aad8e056a1d34640f8d")
+	payer := mustAccountFromHex("e4c2694501255921b6588519cfd36d4e86ddc4ce19ab1bc91d9c58057c040304")
+	user1 := mustAccountFromHex("dd02564c0e9836fb570322be23f8355761d4d04ebccdc53f4f53325227680a9f")
+	user2 := mustAccountFromHex("bc3def46fab7929038dfb0df7e0168cba60d3384aceabf85e23e5e0ff90c8fe3")
+	user3 := mustAccountFromHex("7acd0f26d5be968f73ca8f2198fa52cc595650f8d5819ee9122fe90329847c48")
 
 	// Fund all test accounts from dev account (10 ETH each)
-	fmt.Print("Funding test accounts... ")
+	report("Funding test accounts...")
 	fundAmount := new(big.Int)
 	fundAmount.SetString("10000000000000000000", 10) // 10 ETH
 
-	for name, address := range map[string]eth.Address{
+	for name, addr := range map[string]eth.Address{
 		"deployer":         deployer.Address,
-		"payer":            payer.Address,
 		"service_provider": serviceProvider.Address,
+		"payer":            payer.Address,
+		"user1":            user1.Address,
+		"user2":            user2.Address,
+		"user3":            user3.Address,
 	} {
-		if err := fundFromDevAccount(ctx, rpcClient, devAccount, address, fundAmount); err != nil {
-			fmt.Println("FAILED")
+		if err := fundFromDevAccount(ctx, rpcClient, devAccount, addr, fundAmount); err != nil {
 			zlog.Error("failed to fund account", zap.String("name", name), zap.Error(err))
 			anvilContainer.Terminate(ctx)
 			cancel()
 			return nil, fmt.Errorf("funding %s: %w", name, err)
 		}
 	}
-	fmt.Println("OK")
 
 	chainID := chainIDInt.Uint64()
 
 	// Deploy all contracts
-	fmt.Println("Deploying contracts...")
+	report("Deploying contracts...")
 	if err := deployAllContracts(ctx, rpcClient, chainID, deployer, grtToken, controller, staking, escrow, graphPayments, collector, dataService); err != nil {
 		anvilContainer.Terminate(ctx)
 		cancel()
 		return nil, err
 	}
-	fmt.Println("All contracts deployed successfully")
 
-	printEnvironmentInfo(rpcURL, chainID, deployer, serviceProvider, payer, grtToken, controller, staking, escrow, graphPayments, collector, dataService)
-
-	return &Env{
+	env := &Env{
 		ctx:             ctx,
 		cancel:          cancel,
 		anvilContainer:  anvilContainer,
@@ -235,7 +236,30 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		Deployer:        deployer,
 		ServiceProvider: serviceProvider,
 		Payer:           payer,
-	}, nil
+		User1:           user1,
+		User2:           user2,
+		User3:           user3,
+	}
+
+	// Mint GRT to all test accounts
+	report("Minting GRT to test accounts...")
+	for name, addr := range map[string]eth.Address{
+		"deployer":         deployer.Address,
+		"service_provider": serviceProvider.Address,
+		"payer":            payer.Address,
+		"user1":            user1.Address,
+		"user2":            user2.Address,
+		"user3":            user3.Address,
+	} {
+		if err := env.MintGRT(addr, config.EscrowAmount); err != nil {
+			env.cleanup()
+			return nil, fmt.Errorf("minting GRT to %s: %w", name, err)
+		}
+	}
+
+	report("Development environment ready")
+
+	return env, nil
 }
 
 func deployAllContracts(ctx context.Context, rpcClient *rpc.Client, chainID uint64, deployer Account, grtToken, controller, staking, escrow, graphPayments, collector, dataService *Contract) error {
@@ -468,40 +492,33 @@ func callSetGraphToken(ctx context.Context, rpcClient *rpc.Client, key *eth.Priv
 	return SendTransaction(ctx, rpcClient, key, chainID, &stakingAddr, big.NewInt(0), data)
 }
 
-func printEnvironmentInfo(rpcURL string, chainID uint64, deployer, serviceProvider, payer Account, grtToken, controller, staking, escrow, graphPayments, collector, dataService *Contract) {
-	fmt.Printf("\n")
-	fmt.Printf("============================================================\n")
-	fmt.Printf("  Development Environment Ready\n")
-	fmt.Printf("============================================================\n")
-	fmt.Printf("\n")
-	fmt.Printf("NETWORK:\n")
-	fmt.Printf("  RPC URL:  %s\n", rpcURL)
-	fmt.Printf("  Chain ID: %d\n", chainID)
-	fmt.Printf("\n")
-	fmt.Printf("ORIGINAL CONTRACTS (from horizon-contracts):\n")
-	fmt.Printf("  GraphPayments:         %s\n", graphPayments.Address.Pretty())
-	fmt.Printf("  PaymentsEscrow:        %s\n", escrow.Address.Pretty())
-	fmt.Printf("  GraphTallyCollector:   %s\n", collector.Address.Pretty())
-	fmt.Printf("  SubstreamsDataService: %s\n", dataService.Address.Pretty())
-	fmt.Printf("\n")
-	fmt.Printf("MOCK CONTRACTS (test infrastructure):\n")
-	fmt.Printf("  MockGRTToken:    %s\n", grtToken.Address.Pretty())
-	fmt.Printf("  MockController:  %s\n", controller.Address.Pretty())
-	fmt.Printf("  MockStaking:     %s\n", staking.Address.Pretty())
-	fmt.Printf("\n")
-	fmt.Printf("TEST ACCOUNTS (funded with 10 ETH each):\n")
-	fmt.Printf("\n")
-	fmt.Printf("  Deployer:\n")
-	fmt.Printf("    Address:     %s\n", deployer.Address.Pretty())
-	fmt.Printf("    Private Key: 0x%s\n", deployer.PrivateKey.String())
-	fmt.Printf("\n")
-	fmt.Printf("  Service Provider:\n")
-	fmt.Printf("    Address:     %s\n", serviceProvider.Address.Pretty())
-	fmt.Printf("    Private Key: 0x%s\n", serviceProvider.PrivateKey.String())
-	fmt.Printf("\n")
-	fmt.Printf("  Payer:\n")
-	fmt.Printf("    Address:     %s\n", payer.Address.Pretty())
-	fmt.Printf("    Private Key: 0x%s\n", payer.PrivateKey.String())
-	fmt.Printf("\n")
-	fmt.Printf("============================================================\n")
+// PrintInfo prints the environment information to the given writer
+func (env *Env) PrintInfo(w io.Writer) {
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "============================================================\n")
+	fmt.Fprintf(w, "  Development Environment Ready\n")
+	fmt.Fprintf(w, "============================================================\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "NETWORK:\n")
+	fmt.Fprintf(w, "  RPC URL:  %s\n", env.RPCURL)
+	fmt.Fprintf(w, "  Chain ID: %d\n", env.ChainID)
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "CONTRACTS:\n")
+	fmt.Fprintf(w, "  GraphPayments:         %s\n", env.GraphPayments.Address.Pretty())
+	fmt.Fprintf(w, "  PaymentsEscrow:        %s\n", env.Escrow.Address.Pretty())
+	fmt.Fprintf(w, "  GraphTallyCollector:   %s\n", env.Collector.Address.Pretty())
+	fmt.Fprintf(w, "  SubstreamsDataService: %s\n", env.DataService.Address.Pretty())
+	fmt.Fprintf(w, "  MockGRTToken:          %s\n", env.GRTToken.Address.Pretty())
+	fmt.Fprintf(w, "  MockController:        %s\n", env.Controller.Address.Pretty())
+	fmt.Fprintf(w, "  MockStaking:           %s\n", env.Staking.Address.Pretty())
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "TEST ACCOUNTS (10 ETH + 10,000 GRT each):\n")
+	fmt.Fprintf(w, "  Deployer:         %s (0x%s)\n", env.Deployer.Address.Pretty(), env.Deployer.PrivateKey.String())
+	fmt.Fprintf(w, "  Service Provider: %s (0x%s)\n", env.ServiceProvider.Address.Pretty(), env.ServiceProvider.PrivateKey.String())
+	fmt.Fprintf(w, "  Payer:            %s (0x%s)\n", env.Payer.Address.Pretty(), env.Payer.PrivateKey.String())
+	fmt.Fprintf(w, "  User1:            %s (0x%s)\n", env.User1.Address.Pretty(), env.User1.PrivateKey.String())
+	fmt.Fprintf(w, "  User2:            %s (0x%s)\n", env.User2.Address.Pretty(), env.User2.PrivateKey.String())
+	fmt.Fprintf(w, "  User3:            %s (0x%s)\n", env.User3.Address.Pretty(), env.User3.PrivateKey.String())
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "============================================================\n")
 }

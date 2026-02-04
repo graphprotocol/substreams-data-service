@@ -2,6 +2,16 @@ package devenv
 
 import "math/big"
 
+// Reporter is an interface for reporting progress during devenv startup
+type Reporter interface {
+	ReportProgress(message string)
+}
+
+// NoopReporter is a reporter that does nothing
+type NoopReporter struct{}
+
+func (NoopReporter) ReportProgress(message string) {}
+
 // Config holds configuration for the development environment
 type Config struct {
 	// ChainID is the chain ID for the Anvil network (default: 1337)
@@ -12,6 +22,8 @@ type Config struct {
 	EscrowAmount *big.Int
 	// ProvisionAmount is the default provision amount (default: 1,000 GRT)
 	ProvisionAmount *big.Int
+	// Reporter is used to report progress during startup
+	Reporter Reporter
 }
 
 // DefaultConfig returns the default configuration
@@ -27,6 +39,7 @@ func DefaultConfig() *Config {
 		BlockTime:       1,
 		EscrowAmount:    escrow,
 		ProvisionAmount: provision,
+		Reporter:        NoopReporter{},
 	}
 }
 
@@ -58,5 +71,12 @@ func WithEscrowAmount(amount *big.Int) Option {
 func WithProvisionAmount(amount *big.Int) Option {
 	return func(c *Config) {
 		c.ProvisionAmount = amount
+	}
+}
+
+// WithReporter sets the progress reporter
+func WithReporter(reporter Reporter) Option {
+	return func(c *Config) {
+		c.Reporter = reporter
 	}
 }

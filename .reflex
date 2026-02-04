@@ -1,0 +1,8 @@
+
+-r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+    'echo "Starting Consumer Sidecar ..." && \
+    DLOG=".*=debug" ./devel/sds consumer sidecar'
+
+-r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+    'echo "Starting Provider Sidecar ..." && \
+    DLOG=".*=debug" ./devel/sds provider sidecar'

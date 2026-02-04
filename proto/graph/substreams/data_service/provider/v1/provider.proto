@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.provider.v1;
+
+import "graph/substreams/data_service/common/v1/types.proto";
+
+// ProviderSidecarService is the service that the data provider calls to validate
+// payments and report usage. It runs alongside the provider to handle
+// payment verification.
+//
+// Flow: provider (p) -> provider sidecar (psc)
+service ProviderSidecarService {
+  // ValidatePayment validates a RAV received from a client.
+  // Called by the provider when a client connects with a payment header.
+  rpc ValidatePayment(ValidatePaymentRequest) returns (ValidatePaymentResponse);
+
+  // ReportUsage reports usage sent to a client.
+  // Called by the provider as data is sent during streaming.
+  rpc ReportUsage(ReportUsageRequest) returns (ReportUsageResponse);
+
+  // EndSession ends a session and reports final usage.
+  // Called by the provider when a stream ends.
+  rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
+
+  // GetSessionStatus gets the current status of a payment session.
+  rpc GetSessionStatus(GetSessionStatusRequest) returns (GetSessionStatusResponse);
+}
+
+message ValidatePaymentRequest {
+  // The signed RAV from the client's payment header
+  common.v1.SignedRAV payment_rav = 1;
+  // Client-provided session ID (if resuming)
+  string client_session_id = 2;
+  // Expected service parameters
+  common.v1.ServiceParameters service_params = 3;
+}
+
+message ValidatePaymentResponse {
+  // Whether the payment is valid
+  bool valid = 1;
+  // If not valid, the reason for rejection
+  string rejection_reason = 2;
+  // The session ID assigned by the provider sidecar
+  string session_id = 3;
+  // Service parameters to return to the client
+  common.v1.ServiceParameters service_params = 4;
+  // The escrow account associated with this payment
+  common.v1.EscrowAccount escrow_account = 5;
+  // Available escrow balance in GRT (wei)
+  bytes available_balance = 6;
+}
+
+message ReportUsageRequest {
+  // The session ID
+  string session_id = 1;
+  // The usage to report
+  common.v1.Usage usage = 2;
+}
+
+message ReportUsageResponse {
+  // Whether the session should continue
+  bool should_continue = 1;
+  // If should_continue is false, the reason for stopping
+  string stop_reason = 2;
+  // Whether a new RAV has been received
+  bool rav_updated = 3;
+}
+
+message EndSessionRequest {
+  // The session ID
+  string session_id = 1;
+  // Final usage for this session
+  common.v1.Usage final_usage = 2;
+  // Reason for ending the session
+  common.v1.EndReason reason = 3;
+}
+
+message EndSessionResponse {
+  // The final RAV for this session
+  common.v1.SignedRAV final_rav = 1;
+  // Total usage for the session
+  common.v1.Usage total_usage = 2;
+  // Total value collected in GRT (wei)
+  bytes total_value = 3;
+}
+
+message GetSessionStatusRequest {
+  // The session ID
+  string session_id = 1;
+}
+
+message GetSessionStatusResponse {
+  // Whether the session exists and is active
+  bool active = 1;
+  // Current session information
+  common.v1.SessionInfo session = 2;
+  // Current payment status
+  common.v1.PaymentStatus payment_status = 3;
+}

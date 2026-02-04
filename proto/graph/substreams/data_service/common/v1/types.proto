@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.common.v1;
+
+// SignedRAV represents a signed Receipt Aggregate Voucher.
+// This is the core payment primitive - a signed commitment to pay for usage.
+message SignedRAV {
+  // The RAV data that was signed
+  RAV rav = 1;
+  // The signature over the RAV (EIP-712 typed data signature)
+  bytes signature = 2;
+}
+
+// RAV (Receipt Aggregate Voucher) represents accumulated usage that the payer
+// commits to pay. RAVs are aggregated over time and only the latest RAV
+// needs to be submitted on-chain for payment collection.
+message RAV {
+  // The payer's address (who is paying for the service)
+  bytes payer = 1;
+  // The data service contract address
+  bytes data_service = 2;
+  // The service provider's address (who is providing the service)
+  bytes service_provider = 3;
+  // Timestamp when this RAV was created (Unix nanoseconds)
+  uint64 timestamp_ns = 4;
+  // Total value in GRT (wei) accumulated in this RAV
+  bytes value_aggregate = 5;
+  // Arbitrary metadata (e.g., request CID, collection ID)
+  bytes metadata = 6;
+}
+
+// Usage represents metered usage during a session.
+message Usage {
+  // Number of blocks processed
+  uint64 blocks_processed = 1;
+  // Number of bytes transferred
+  uint64 bytes_transferred = 2;
+  // Number of requests made
+  uint64 requests = 3;
+  // Computed cost in GRT (wei) for this usage
+  bytes cost = 4;
+}
+
+// EscrowAccount identifies an escrow deposit that funds payments.
+message EscrowAccount {
+  // The payer's address
+  bytes payer = 1;
+  // The receiver's address (service provider)
+  bytes receiver = 2;
+  // The data service contract address
+  bytes data_service = 3;
+}
+
+// SessionInfo contains information about an active payment session.
+message SessionInfo {
+  // Unique session identifier
+  string session_id = 1;
+  // The escrow account funding this session
+  EscrowAccount escrow_account = 2;
+  // The current RAV for this session
+  SignedRAV current_rav = 3;
+  // Accumulated usage in this session
+  Usage accumulated_usage = 4;
+}
+
+// ServiceParameters defines pricing and requirements for a service.
+message ServiceParameters {
+  // Minimum blocks that need to be preprocessed before streaming
+  uint64 required_blocks_preproc = 1;
+  // Estimated bytes per block
+  uint64 estimated_bytes_per_block = 2;
+  // Price per block in GRT (wei)
+  bytes price_per_block = 3;
+}
+
+// PaymentStatus represents the current payment state of a session.
+message PaymentStatus {
+  // Current RAV value in GRT (wei)
+  bytes current_rav_value = 1;
+  // Accumulated usage value in GRT (wei)
+  bytes accumulated_usage_value = 2;
+  // Available escrow balance in GRT (wei)
+  bytes escrow_balance = 3;
+  // Whether funds are sufficient
+  bool funds_sufficient = 4;
+  // Estimated blocks remaining at current rate
+  uint64 estimated_blocks_remaining = 5;
+}
+
+// EndReason indicates why a session ended.
+enum EndReason {
+  END_REASON_UNSPECIFIED = 0;
+  // Normal completion
+  END_REASON_COMPLETE = 1;
+  // Client disconnected
+  END_REASON_CLIENT_DISCONNECT = 2;
+  // Provider initiated stop
+  END_REASON_PROVIDER_STOP = 3;
+  // Error occurred
+  END_REASON_ERROR = 4;
+  // Payment issue
+  END_REASON_PAYMENT_ISSUE = 5;
+}

@@ -27,6 +27,18 @@ func mustNewAccount() Account {
 	}
 }
 
+// mustAccountFromHex creates an account from a hex-encoded private key or panics on failure
+func mustAccountFromHex(hexKey string) Account {
+	key, err := eth.NewPrivateKey(hexKey)
+	if err != nil {
+		panic(fmt.Sprintf("parsing private key from hex: %v", err))
+	}
+	return Account{
+		Address:    key.PublicKey().Address(),
+		PrivateKey: key,
+	}
+}
+
 // fundFromDevAccount funds an account from the Anvil dev account (uses eth_sendTransaction)
 func fundFromDevAccount(ctx context.Context, rpcClient *rpc.Client, from, to eth.Address, amount *big.Int) error {
 	params := []interface{}{

@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.provider.v1;
+
+import "graph/substreams/data_service/common/v1/types.proto";
+
+// PaymentGatewayService is the service that connects the consumer sidecar to the
+// provider sidecar for payment negotiation and RAV exchange.
+//
+// Flow: consumer sidecar (sc) <-> provider sidecar (psc)
+service PaymentGatewayService {
+  // StartSession initiates a payment session with the provider.
+  // The consumer sidecar calls this to establish a session before
+  // the substreams client connects to the provider.
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+
+  // SubmitRAV submits a signed RAV to the provider sidecar.
+  // Called when the provider requests a new RAV for continued service.
+  rpc SubmitRAV(SubmitRAVRequest) returns (SubmitRAVResponse);
+
+  // PaymentSession is a bidirectional stream for ongoing payment negotiation.
+  // This allows the provider sidecar to request RAVs and notify about
+  // funding requirements in real-time.
+  rpc PaymentSession(stream PaymentSessionRequest) returns (stream PaymentSessionResponse);
+}
+
+message StartSessionRequest {
+  // The escrow account funding this session
+  common.v1.EscrowAccount escrow_account = 1;
+  // Initial RAV (can be a zero-value RAV for new sessions)
+  common.v1.SignedRAV initial_rav = 2;
+}
+
+message StartSessionResponse {
+  // Unique session identifier assigned by the provider
+  string session_id = 1;
+  // The RAV to use for authentication (may be the same or different from initial)
+  common.v1.SignedRAV use_rav = 2;
+  // Whether the session was accepted
+  bool accepted = 3;
+  // If not accepted, the reason for rejection
+  string rejection_reason = 4;
+}
+
+message SubmitRAVRequest {
+  // The session ID
+  string session_id = 1;
+  // The signed RAV being submitted
+  common.v1.SignedRAV signed_rav = 2;
+  // The usage this RAV covers
+  common.v1.Usage usage = 3;
+}
+
+message SubmitRAVResponse {
+  // Whether the RAV was accepted
+  bool accepted = 1;
+  // If not accepted, the reason for rejection
+  string rejection_reason = 2;
+  // Whether the session should continue
+  bool should_continue = 3;
+}
+
+// Messages from consumer sidecar to provider sidecar in the bidirectional stream
+message PaymentSessionRequest {
+  oneof message {
+    // Signed RAV in response to a RAV request
+    SignedRAVSubmission rav_submission = 1;
+    // Acknowledgment of a funds request
+    FundsAcknowledgment funds_ack = 2;
+    // Usage report from the consumer side
+    UsageReport usage_report = 3;
+  }
+}
+
+// Messages from provider sidecar to consumer sidecar in the bidirectional stream
+message PaymentSessionResponse {
+  oneof message {
+    // Request for a new signed RAV
+    RAVRequest rav_request = 1;
+    // Notification that more escrow funds are needed
+    NeedMoreFunds need_more_funds = 2;
+    // Session control message
+    SessionControl session_control = 3;
+  }
+}
+
+message SignedRAVSubmission {
+  // The signed RAV
+  common.v1.SignedRAV signed_rav = 1;
+  // The usage this RAV covers
+  common.v1.Usage usage = 2;
+}
+
+message FundsAcknowledgment {
+  // Whether more funds will be deposited
+  bool will_deposit = 1;
+  // Expected deposit amount in GRT (wei)
+  bytes deposit_amount = 2;
+}
+
+message UsageReport {
+  // Reported usage
+  common.v1.Usage usage = 1;
+}
+
+message RAVRequest {
+  // The current RAV to extend
+  common.v1.SignedRAV current_rav = 1;
+  // The usage since the last RAV
+  common.v1.Usage usage = 2;
+  // Deadline for the RAV response (Unix timestamp)
+  uint64 deadline = 3;
+}
+
+message NeedMoreFunds {
+  // Current outstanding RAVs that will be collected
+  repeated common.v1.SignedRAV outstanding_ravs = 1;
+  // Total outstanding value in GRT (wei)
+  bytes total_outstanding = 2;
+  // Current escrow balance in GRT (wei)
+  bytes escrow_balance = 3;
+  // Minimum additional funds needed in GRT (wei)
+  bytes minimum_needed = 4;
+}
+
+message SessionControl {
+  // Control action
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    // Continue the session
+    ACTION_CONTINUE = 1;
+    // Stop the session gracefully
+    ACTION_STOP = 2;
+    // Pause the session (temporary)
+    ACTION_PAUSE = 3;
+  }
+  Action action = 1;
+  // Reason for the action
+  string reason = 2;
+}
