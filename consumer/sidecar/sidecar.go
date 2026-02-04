@@ -2,14 +2,19 @@ package sidecar
 
 import (
 	"context"
+	"math/big"
 	"net/http"
 
 	"connectrpc.com/connect"
-	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
 	"github.com/streamingfast/dgrpc/server"
 	"github.com/streamingfast/dgrpc/server/connectrpc"
+	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
+
+	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
+	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
 var _ consumerv1connect.ConsumerSidecarServiceHandler = (*Sidecar)(nil)
@@ -20,13 +25,32 @@ type Sidecar struct {
 	listenAddr string
 	logger     *zap.Logger
 	server     *connectrpc.ConnectWebServer
+
+	// Session management
+	sessions *sidecar.SessionManager
+
+	// Signing configuration
+	signerKey *eth.PrivateKey
+	domain    *horizon.Domain
+
+	// Provider gateway endpoint (set during Init)
+	// In production, this would be dynamically determined
 }
 
-func New(listenAddr string, logger *zap.Logger) *Sidecar {
+type Config struct {
+	ListenAddr string
+	SignerKey  *eth.PrivateKey
+	Domain     *horizon.Domain
+}
+
+func New(config *Config, logger *zap.Logger) *Sidecar {
 	return &Sidecar{
 		Shutter:    shutter.New(),
-		listenAddr: listenAddr,
+		listenAddr: config.ListenAddr,
 		logger:     logger,
+		sessions:   sidecar.NewSessionManager(),
+		signerKey:  config.SignerKey,
+		domain:     config.Domain,
 	}
 }
 
@@ -60,4 +84,25 @@ func (s *Sidecar) Run() {
 
 func (s *Sidecar) healthCheck(ctx context.Context) (isReady bool, out interface{}, err error) {
 	return true, nil, nil
+}
+
+// signRAV creates a signed RAV for the given parameters
+func (s *Sidecar) signRAV(
+	collectionID horizon.CollectionID,
+	payer, dataService, serviceProvider eth.Address,
+	timestampNs uint64,
+	valueAggregate *big.Int,
+	metadata []byte,
+) (*horizon.SignedRAV, error) {
+	rav := &horizon.RAV{
+		CollectionID:    collectionID,
+		Payer:           payer,
+		DataService:     dataService,
+		ServiceProvider: serviceProvider,
+		TimestampNs:     timestampNs,
+		ValueAggregate:  valueAggregate,
+		Metadata:        metadata,
+	}
+
+	return horizon.Sign(s.domain, rav, s.signerKey)
 }

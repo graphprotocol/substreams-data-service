@@ -47,7 +47,7 @@ message ValidatePaymentResponse {
   // The escrow account associated with this payment
   common.v1.EscrowAccount escrow_account = 5;
   // Available escrow balance in GRT (wei)
-  bytes available_balance = 6;
+  common.v1.BigInt available_balance = 6;
 }
 
 message ReportUsageRequest {
@@ -81,7 +81,7 @@ message EndSessionResponse {
   // Total usage for the session
   common.v1.Usage total_usage = 2;
   // Total value collected in GRT (wei)
-  bytes total_value = 3;
+  common.v1.BigInt total_value = 3;
 }
 
 message GetSessionStatusRequest {

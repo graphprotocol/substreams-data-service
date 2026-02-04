@@ -593,7 +593,7 @@ type FundsAcknowledgment struct {
 	// Whether more funds will be deposited
 	WillDeposit bool `protobuf:"varint,1,opt,name=will_deposit,json=willDeposit,proto3" json:"will_deposit,omitempty"`
 	// Expected deposit amount in GRT (wei)
-	DepositAmount []byte `protobuf:"bytes,2,opt,name=deposit_amount,json=depositAmount,proto3" json:"deposit_amount,omitempty"`
+	DepositAmount *v1.BigInt `protobuf:"bytes,2,opt,name=deposit_amount,json=depositAmount,proto3" json:"deposit_amount,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -635,7 +635,7 @@ func (x *FundsAcknowledgment) GetWillDeposit() bool {
 	return false
 }
 
-func (x *FundsAcknowledgment) GetDepositAmount() []byte {
+func (x *FundsAcknowledgment) GetDepositAmount() *v1.BigInt {
 	if x != nil {
 		return x.DepositAmount
 	}
@@ -755,11 +755,11 @@ type NeedMoreFunds struct {
 	// Current outstanding RAVs that will be collected
 	OutstandingRavs []*v1.SignedRAV `protobuf:"bytes,1,rep,name=outstanding_ravs,json=outstandingRavs,proto3" json:"outstanding_ravs,omitempty"`
 	// Total outstanding value in GRT (wei)
-	TotalOutstanding []byte `protobuf:"bytes,2,opt,name=total_outstanding,json=totalOutstanding,proto3" json:"total_outstanding,omitempty"`
+	TotalOutstanding *v1.BigInt `protobuf:"bytes,2,opt,name=total_outstanding,json=totalOutstanding,proto3" json:"total_outstanding,omitempty"`
 	// Current escrow balance in GRT (wei)
-	EscrowBalance []byte `protobuf:"bytes,3,opt,name=escrow_balance,json=escrowBalance,proto3" json:"escrow_balance,omitempty"`
+	EscrowBalance *v1.BigInt `protobuf:"bytes,3,opt,name=escrow_balance,json=escrowBalance,proto3" json:"escrow_balance,omitempty"`
 	// Minimum additional funds needed in GRT (wei)
-	MinimumNeeded []byte `protobuf:"bytes,4,opt,name=minimum_needed,json=minimumNeeded,proto3" json:"minimum_needed,omitempty"`
+	MinimumNeeded *v1.BigInt `protobuf:"bytes,4,opt,name=minimum_needed,json=minimumNeeded,proto3" json:"minimum_needed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -801,21 +801,21 @@ func (x *NeedMoreFunds) GetOutstandingRavs() []*v1.SignedRAV {
 	return nil
 }
 
-func (x *NeedMoreFunds) GetTotalOutstanding() []byte {
+func (x *NeedMoreFunds) GetTotalOutstanding() *v1.BigInt {
 	if x != nil {
 		return x.TotalOutstanding
 	}
 	return nil
 }
 
-func (x *NeedMoreFunds) GetEscrowBalance() []byte {
+func (x *NeedMoreFunds) GetEscrowBalance() *v1.BigInt {
 	if x != nil {
 		return x.EscrowBalance
 	}
 	return nil
 }
 
-func (x *NeedMoreFunds) GetMinimumNeeded() []byte {
+func (x *NeedMoreFunds) GetMinimumNeeded() *v1.BigInt {
 	if x != nil {
 		return x.MinimumNeeded
 	}
@@ -914,10 +914,10 @@ const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" 
 	"\x13SignedRAVSubmission\x12Q\n" +
 	"\n" +
 	"signed_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\tsignedRav\x12D\n" +
-	"\x05usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x05usage\"_\n" +
+	"\x05usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x05usage\"\x90\x01\n" +
 	"\x13FundsAcknowledgment\x12!\n" +
-	"\fwill_deposit\x18\x01 \x01(\bR\vwillDeposit\x12%\n" +
-	"\x0edeposit_amount\x18\x02 \x01(\fR\rdepositAmount\"S\n" +
+	"\fwill_deposit\x18\x01 \x01(\bR\vwillDeposit\x12V\n" +
+	"\x0edeposit_amount\x18\x02 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rdepositAmount\"S\n" +
 	"\vUsageReport\x12D\n" +
 	"\x05usage\x18\x01 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x05usage\"\xc3\x01\n" +
 	"\n" +
@@ -925,12 +925,12 @@ const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" 
 	"\vcurrent_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
 	"currentRav\x12D\n" +
 	"\x05usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x05usage\x12\x1a\n" +
-	"\bdeadline\x18\x03 \x01(\x04R\bdeadline\"\xe9\x01\n" +
+	"\bdeadline\x18\x03 \x01(\x04R\bdeadline\"\xfc\x02\n" +
 	"\rNeedMoreFunds\x12]\n" +
-	"\x10outstanding_ravs\x18\x01 \x03(\v22.graph.substreams.data_service.common.v1.SignedRAVR\x0foutstandingRavs\x12+\n" +
-	"\x11total_outstanding\x18\x02 \x01(\fR\x10totalOutstanding\x12%\n" +
-	"\x0eescrow_balance\x18\x03 \x01(\fR\rescrowBalance\x12%\n" +
-	"\x0eminimum_needed\x18\x04 \x01(\fR\rminimumNeeded\"\xdc\x01\n" +
+	"\x10outstanding_ravs\x18\x01 \x03(\v22.graph.substreams.data_service.common.v1.SignedRAVR\x0foutstandingRavs\x12\\\n" +
+	"\x11total_outstanding\x18\x02 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x10totalOutstanding\x12V\n" +
+	"\x0eescrow_balance\x18\x03 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rescrowBalance\x12V\n" +
+	"\x0eminimum_needed\x18\x04 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rminimumNeeded\"\xdc\x01\n" +
 	"\x0eSessionControl\x12X\n" +
 	"\x06action\x18\x01 \x01(\x0e2@.graph.substreams.data_service.provider.v1.SessionControl.ActionR\x06action\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"X\n" +
@@ -976,6 +976,7 @@ var file_graph_substreams_data_service_provider_v1_gateway_proto_goTypes = []any
 	(*v1.EscrowAccount)(nil),       // 13: graph.substreams.data_service.common.v1.EscrowAccount
 	(*v1.SignedRAV)(nil),           // 14: graph.substreams.data_service.common.v1.SignedRAV
 	(*v1.Usage)(nil),               // 15: graph.substreams.data_service.common.v1.Usage
+	(*v1.BigInt)(nil),              // 16: graph.substreams.data_service.common.v1.BigInt
 }
 var file_graph_substreams_data_service_provider_v1_gateway_proto_depIdxs = []int32{
 	13, // 0: graph.substreams.data_service.provider.v1.StartSessionRequest.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
@@ -991,22 +992,26 @@ var file_graph_substreams_data_service_provider_v1_gateway_proto_depIdxs = []int
 	12, // 10: graph.substreams.data_service.provider.v1.PaymentSessionResponse.session_control:type_name -> graph.substreams.data_service.provider.v1.SessionControl
 	14, // 11: graph.substreams.data_service.provider.v1.SignedRAVSubmission.signed_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
 	15, // 12: graph.substreams.data_service.provider.v1.SignedRAVSubmission.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	15, // 13: graph.substreams.data_service.provider.v1.UsageReport.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	14, // 14: graph.substreams.data_service.provider.v1.RAVRequest.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	15, // 15: graph.substreams.data_service.provider.v1.RAVRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	14, // 16: graph.substreams.data_service.provider.v1.NeedMoreFunds.outstanding_ravs:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	0,  // 17: graph.substreams.data_service.provider.v1.SessionControl.action:type_name -> graph.substreams.data_service.provider.v1.SessionControl.Action
-	1,  // 18: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:input_type -> graph.substreams.data_service.provider.v1.StartSessionRequest
-	3,  // 19: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:input_type -> graph.substreams.data_service.provider.v1.SubmitRAVRequest
-	5,  // 20: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:input_type -> graph.substreams.data_service.provider.v1.PaymentSessionRequest
-	2,  // 21: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:output_type -> graph.substreams.data_service.provider.v1.StartSessionResponse
-	4,  // 22: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:output_type -> graph.substreams.data_service.provider.v1.SubmitRAVResponse
-	6,  // 23: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:output_type -> graph.substreams.data_service.provider.v1.PaymentSessionResponse
-	21, // [21:24] is the sub-list for method output_type
-	18, // [18:21] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	16, // 13: graph.substreams.data_service.provider.v1.FundsAcknowledgment.deposit_amount:type_name -> graph.substreams.data_service.common.v1.BigInt
+	15, // 14: graph.substreams.data_service.provider.v1.UsageReport.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	14, // 15: graph.substreams.data_service.provider.v1.RAVRequest.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	15, // 16: graph.substreams.data_service.provider.v1.RAVRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	14, // 17: graph.substreams.data_service.provider.v1.NeedMoreFunds.outstanding_ravs:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	16, // 18: graph.substreams.data_service.provider.v1.NeedMoreFunds.total_outstanding:type_name -> graph.substreams.data_service.common.v1.BigInt
+	16, // 19: graph.substreams.data_service.provider.v1.NeedMoreFunds.escrow_balance:type_name -> graph.substreams.data_service.common.v1.BigInt
+	16, // 20: graph.substreams.data_service.provider.v1.NeedMoreFunds.minimum_needed:type_name -> graph.substreams.data_service.common.v1.BigInt
+	0,  // 21: graph.substreams.data_service.provider.v1.SessionControl.action:type_name -> graph.substreams.data_service.provider.v1.SessionControl.Action
+	1,  // 22: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:input_type -> graph.substreams.data_service.provider.v1.StartSessionRequest
+	3,  // 23: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:input_type -> graph.substreams.data_service.provider.v1.SubmitRAVRequest
+	5,  // 24: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:input_type -> graph.substreams.data_service.provider.v1.PaymentSessionRequest
+	2,  // 25: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:output_type -> graph.substreams.data_service.provider.v1.StartSessionResponse
+	4,  // 26: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:output_type -> graph.substreams.data_service.provider.v1.SubmitRAVResponse
+	6,  // 27: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:output_type -> graph.substreams.data_service.provider.v1.PaymentSessionResponse
+	25, // [25:28] is the sub-list for method output_type
+	22, // [22:25] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_provider_v1_gateway_proto_init() }

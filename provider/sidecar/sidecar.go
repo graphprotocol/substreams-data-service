@@ -5,11 +5,15 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
-	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	"github.com/streamingfast/dgrpc/server"
 	"github.com/streamingfast/dgrpc/server/connectrpc"
+	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
+
+	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
+	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
 var _ providerv1connect.ProviderSidecarServiceHandler = (*Sidecar)(nil)
@@ -21,14 +25,47 @@ type Sidecar struct {
 	listenAddr string
 	logger     *zap.Logger
 	server     *connectrpc.ConnectWebServer
+
+	// Session management
+	sessions *sidecar.SessionManager
+
+	// Service provider identity
+	serviceProvider eth.Address
+
+	// Domain for signature verification
+	domain *horizon.Domain
+
+	// Accepted signer addresses (authorized by payers)
+	acceptedSigners map[string]bool
 }
 
-func New(listenAddr string, logger *zap.Logger) *Sidecar {
-	return &Sidecar{
-		Shutter:    shutter.New(),
-		listenAddr: listenAddr,
-		logger:     logger,
+type Config struct {
+	ListenAddr      string
+	ServiceProvider eth.Address
+	Domain          *horizon.Domain
+	AcceptedSigners []eth.Address
+}
+
+func New(config *Config, logger *zap.Logger) *Sidecar {
+	signerMap := make(map[string]bool, len(config.AcceptedSigners))
+	for _, addr := range config.AcceptedSigners {
+		signerMap[addr.Pretty()] = true
 	}
+
+	return &Sidecar{
+		Shutter:         shutter.New(),
+		listenAddr:      config.ListenAddr,
+		logger:          logger,
+		sessions:        sidecar.NewSessionManager(),
+		serviceProvider: config.ServiceProvider,
+		domain:          config.Domain,
+		acceptedSigners: signerMap,
+	}
+}
+
+// AddAcceptedSigner adds a signer to the accepted list
+func (s *Sidecar) AddAcceptedSigner(addr eth.Address) {
+	s.acceptedSigners[addr.Pretty()] = true
 }
 
 func (s *Sidecar) Run() {
@@ -65,4 +102,14 @@ func (s *Sidecar) Run() {
 
 func (s *Sidecar) healthCheck(ctx context.Context) (isReady bool, out interface{}, err error) {
 	return true, nil, nil
+}
+
+// verifyRAVSignature verifies a RAV signature and returns the signer address
+func (s *Sidecar) verifyRAVSignature(signedRAV *horizon.SignedRAV) (eth.Address, error) {
+	return signedRAV.RecoverSigner(s.domain)
+}
+
+// isAcceptedSigner checks if an address is in the accepted signers list
+func (s *Sidecar) isAcceptedSigner(addr eth.Address) bool {
+	return s.acceptedSigners[addr.Pretty()]
 }

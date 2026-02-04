@@ -16,8 +16,6 @@ func (NoopReporter) ReportProgress(message string) {}
 type Config struct {
 	// ChainID is the chain ID for the Anvil network (default: 1337)
 	ChainID uint64
-	// BlockTime is the block time for Anvil in seconds (default: 1)
-	BlockTime uint64
 	// EscrowAmount is the default amount to deposit in escrow (default: 10,000 GRT)
 	EscrowAmount *big.Int
 	// ProvisionAmount is the default provision amount (default: 1,000 GRT)
@@ -36,7 +34,6 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		ChainID:         1337,
-		BlockTime:       1,
 		EscrowAmount:    escrow,
 		ProvisionAmount: provision,
 		Reporter:        NoopReporter{},
@@ -50,13 +47,6 @@ type Option func(*Config)
 func WithChainID(chainID uint64) Option {
 	return func(c *Config) {
 		c.ChainID = chainID
-	}
-}
-
-// WithBlockTime sets the block time in seconds
-func WithBlockTime(blockTime uint64) Option {
-	return func(c *Config) {
-		c.BlockTime = blockTime
 	}
 }
 

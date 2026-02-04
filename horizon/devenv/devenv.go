@@ -109,7 +109,7 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	anvilReq := testcontainers.ContainerRequest{
 		Image: "ghcr.io/foundry-rs/foundry:latest",
 		Cmd: []string{
-			fmt.Sprintf("anvil --host 0.0.0.0 --port 8545 --chain-id %d --block-time %d", config.ChainID, config.BlockTime),
+			fmt.Sprintf("anvil --host 0.0.0.0 --port 8545 --chain-id %d", config.ChainID),
 		},
 		ExposedPorts: []string{"8545/tcp"},
 		WaitingFor: wait.ForListeningPort("8545/tcp").
@@ -134,15 +134,9 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		return nil, fmt.Errorf("getting mapped port: %w", err)
 	}
 
-	host, err := anvilContainer.Host(ctx)
-	if err != nil {
-		zlog.Error("failed to get container host", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("getting host: %w", err)
-	}
-
-	rpcURL := fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
+	// Use localhost for Docker published ports - using container.Host() may return
+	// an IP that goes through a proxy and gets blocked
+	rpcURL := fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	zlog.Info("Anvil RPC endpoint ready", zap.String("rpc_url", rpcURL))
 
 	// Create RPC client

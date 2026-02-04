@@ -95,7 +95,7 @@ message FundsAcknowledgment {
   // Whether more funds will be deposited
   bool will_deposit = 1;
   // Expected deposit amount in GRT (wei)
-  bytes deposit_amount = 2;
+  common.v1.BigInt deposit_amount = 2;
 }
 
 message UsageReport {
@@ -116,11 +116,11 @@ message NeedMoreFunds {
   // Current outstanding RAVs that will be collected
   repeated common.v1.SignedRAV outstanding_ravs = 1;
   // Total outstanding value in GRT (wei)
-  bytes total_outstanding = 2;
+  common.v1.BigInt total_outstanding = 2;
   // Current escrow balance in GRT (wei)
-  bytes escrow_balance = 3;
+  common.v1.BigInt escrow_balance = 3;
   // Minimum additional funds needed in GRT (wei)
-  bytes minimum_needed = 4;
+  common.v1.BigInt minimum_needed = 4;
 }
 
 message SessionControl {

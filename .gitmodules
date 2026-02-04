@@ -1,6 +1,0 @@
-[submodule "horizon-contracts"]
-	path = horizon-contracts
-	url = https://github.com/graphprotocol/contracts.git
-[submodule "tap-protocol"]
-	path = tap-protocol
-	url = https://github.com/semiotic-ai/timeline-aggregation-protocol.git

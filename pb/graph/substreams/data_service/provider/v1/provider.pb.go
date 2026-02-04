@@ -98,7 +98,7 @@ type ValidatePaymentResponse struct {
 	// The escrow account associated with this payment
 	EscrowAccount *v1.EscrowAccount `protobuf:"bytes,5,opt,name=escrow_account,json=escrowAccount,proto3" json:"escrow_account,omitempty"`
 	// Available escrow balance in GRT (wei)
-	AvailableBalance []byte `protobuf:"bytes,6,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
+	AvailableBalance *v1.BigInt `protobuf:"bytes,6,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -168,7 +168,7 @@ func (x *ValidatePaymentResponse) GetEscrowAccount() *v1.EscrowAccount {
 	return nil
 }
 
-func (x *ValidatePaymentResponse) GetAvailableBalance() []byte {
+func (x *ValidatePaymentResponse) GetAvailableBalance() *v1.BigInt {
 	if x != nil {
 		return x.AvailableBalance
 	}
@@ -362,7 +362,7 @@ type EndSessionResponse struct {
 	// Total usage for the session
 	TotalUsage *v1.Usage `protobuf:"bytes,2,opt,name=total_usage,json=totalUsage,proto3" json:"total_usage,omitempty"`
 	// Total value collected in GRT (wei)
-	TotalValue    []byte `protobuf:"bytes,3,opt,name=total_value,json=totalValue,proto3" json:"total_value,omitempty"`
+	TotalValue    *v1.BigInt `protobuf:"bytes,3,opt,name=total_value,json=totalValue,proto3" json:"total_value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -411,7 +411,7 @@ func (x *EndSessionResponse) GetTotalUsage() *v1.Usage {
 	return nil
 }
 
-func (x *EndSessionResponse) GetTotalValue() []byte {
+func (x *EndSessionResponse) GetTotalValue() *v1.BigInt {
 	if x != nil {
 		return x.TotalValue
 	}
@@ -535,15 +535,15 @@ const file_graph_substreams_data_service_provider_v1_provider_proto_rawDesc = ""
 	"\vpayment_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
 	"paymentRav\x12*\n" +
 	"\x11client_session_id\x18\x02 \x01(\tR\x0fclientSessionId\x12a\n" +
-	"\x0eservice_params\x18\x03 \x01(\v2:.graph.substreams.data_service.common.v1.ServiceParametersR\rserviceParams\"\xe8\x02\n" +
+	"\x0eservice_params\x18\x03 \x01(\v2:.graph.substreams.data_service.common.v1.ServiceParametersR\rserviceParams\"\x99\x03\n" +
 	"\x17ValidatePaymentResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12)\n" +
 	"\x10rejection_reason\x18\x02 \x01(\tR\x0frejectionReason\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x03 \x01(\tR\tsessionId\x12a\n" +
 	"\x0eservice_params\x18\x04 \x01(\v2:.graph.substreams.data_service.common.v1.ServiceParametersR\rserviceParams\x12]\n" +
-	"\x0eescrow_account\x18\x05 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12+\n" +
-	"\x11available_balance\x18\x06 \x01(\fR\x10availableBalance\"y\n" +
+	"\x0eescrow_account\x18\x05 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12\\\n" +
+	"\x11available_balance\x18\x06 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x10availableBalance\"y\n" +
 	"\x12ReportUsageRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12D\n" +
@@ -559,12 +559,12 @@ const file_graph_substreams_data_service_provider_v1_provider_proto_rawDesc = ""
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12O\n" +
 	"\vfinal_usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\n" +
 	"finalUsage\x12J\n" +
-	"\x06reason\x18\x03 \x01(\x0e22.graph.substreams.data_service.common.v1.EndReasonR\x06reason\"\xd7\x01\n" +
+	"\x06reason\x18\x03 \x01(\x0e22.graph.substreams.data_service.common.v1.EndReasonR\x06reason\"\x88\x02\n" +
 	"\x12EndSessionResponse\x12O\n" +
 	"\tfinal_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\bfinalRav\x12O\n" +
 	"\vtotal_usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\n" +
-	"totalUsage\x12\x1f\n" +
-	"\vtotal_value\x18\x03 \x01(\fR\n" +
+	"totalUsage\x12P\n" +
+	"\vtotal_value\x18\x03 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\n" +
 	"totalValue\"8\n" +
 	"\x17GetSessionStatusRequest\x12\x1d\n" +
 	"\n" +
@@ -606,36 +606,39 @@ var file_graph_substreams_data_service_provider_v1_provider_proto_goTypes = []an
 	(*v1.SignedRAV)(nil),             // 8: graph.substreams.data_service.common.v1.SignedRAV
 	(*v1.ServiceParameters)(nil),     // 9: graph.substreams.data_service.common.v1.ServiceParameters
 	(*v1.EscrowAccount)(nil),         // 10: graph.substreams.data_service.common.v1.EscrowAccount
-	(*v1.Usage)(nil),                 // 11: graph.substreams.data_service.common.v1.Usage
-	(v1.EndReason)(0),                // 12: graph.substreams.data_service.common.v1.EndReason
-	(*v1.SessionInfo)(nil),           // 13: graph.substreams.data_service.common.v1.SessionInfo
-	(*v1.PaymentStatus)(nil),         // 14: graph.substreams.data_service.common.v1.PaymentStatus
+	(*v1.BigInt)(nil),                // 11: graph.substreams.data_service.common.v1.BigInt
+	(*v1.Usage)(nil),                 // 12: graph.substreams.data_service.common.v1.Usage
+	(v1.EndReason)(0),                // 13: graph.substreams.data_service.common.v1.EndReason
+	(*v1.SessionInfo)(nil),           // 14: graph.substreams.data_service.common.v1.SessionInfo
+	(*v1.PaymentStatus)(nil),         // 15: graph.substreams.data_service.common.v1.PaymentStatus
 }
 var file_graph_substreams_data_service_provider_v1_provider_proto_depIdxs = []int32{
 	8,  // 0: graph.substreams.data_service.provider.v1.ValidatePaymentRequest.payment_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
 	9,  // 1: graph.substreams.data_service.provider.v1.ValidatePaymentRequest.service_params:type_name -> graph.substreams.data_service.common.v1.ServiceParameters
 	9,  // 2: graph.substreams.data_service.provider.v1.ValidatePaymentResponse.service_params:type_name -> graph.substreams.data_service.common.v1.ServiceParameters
 	10, // 3: graph.substreams.data_service.provider.v1.ValidatePaymentResponse.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
-	11, // 4: graph.substreams.data_service.provider.v1.ReportUsageRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	11, // 5: graph.substreams.data_service.provider.v1.EndSessionRequest.final_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	12, // 6: graph.substreams.data_service.provider.v1.EndSessionRequest.reason:type_name -> graph.substreams.data_service.common.v1.EndReason
-	8,  // 7: graph.substreams.data_service.provider.v1.EndSessionResponse.final_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	11, // 8: graph.substreams.data_service.provider.v1.EndSessionResponse.total_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	13, // 9: graph.substreams.data_service.provider.v1.GetSessionStatusResponse.session:type_name -> graph.substreams.data_service.common.v1.SessionInfo
-	14, // 10: graph.substreams.data_service.provider.v1.GetSessionStatusResponse.payment_status:type_name -> graph.substreams.data_service.common.v1.PaymentStatus
-	0,  // 11: graph.substreams.data_service.provider.v1.ProviderSidecarService.ValidatePayment:input_type -> graph.substreams.data_service.provider.v1.ValidatePaymentRequest
-	2,  // 12: graph.substreams.data_service.provider.v1.ProviderSidecarService.ReportUsage:input_type -> graph.substreams.data_service.provider.v1.ReportUsageRequest
-	4,  // 13: graph.substreams.data_service.provider.v1.ProviderSidecarService.EndSession:input_type -> graph.substreams.data_service.provider.v1.EndSessionRequest
-	6,  // 14: graph.substreams.data_service.provider.v1.ProviderSidecarService.GetSessionStatus:input_type -> graph.substreams.data_service.provider.v1.GetSessionStatusRequest
-	1,  // 15: graph.substreams.data_service.provider.v1.ProviderSidecarService.ValidatePayment:output_type -> graph.substreams.data_service.provider.v1.ValidatePaymentResponse
-	3,  // 16: graph.substreams.data_service.provider.v1.ProviderSidecarService.ReportUsage:output_type -> graph.substreams.data_service.provider.v1.ReportUsageResponse
-	5,  // 17: graph.substreams.data_service.provider.v1.ProviderSidecarService.EndSession:output_type -> graph.substreams.data_service.provider.v1.EndSessionResponse
-	7,  // 18: graph.substreams.data_service.provider.v1.ProviderSidecarService.GetSessionStatus:output_type -> graph.substreams.data_service.provider.v1.GetSessionStatusResponse
-	15, // [15:19] is the sub-list for method output_type
-	11, // [11:15] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	11, // 4: graph.substreams.data_service.provider.v1.ValidatePaymentResponse.available_balance:type_name -> graph.substreams.data_service.common.v1.BigInt
+	12, // 5: graph.substreams.data_service.provider.v1.ReportUsageRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	12, // 6: graph.substreams.data_service.provider.v1.EndSessionRequest.final_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	13, // 7: graph.substreams.data_service.provider.v1.EndSessionRequest.reason:type_name -> graph.substreams.data_service.common.v1.EndReason
+	8,  // 8: graph.substreams.data_service.provider.v1.EndSessionResponse.final_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	12, // 9: graph.substreams.data_service.provider.v1.EndSessionResponse.total_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	11, // 10: graph.substreams.data_service.provider.v1.EndSessionResponse.total_value:type_name -> graph.substreams.data_service.common.v1.BigInt
+	14, // 11: graph.substreams.data_service.provider.v1.GetSessionStatusResponse.session:type_name -> graph.substreams.data_service.common.v1.SessionInfo
+	15, // 12: graph.substreams.data_service.provider.v1.GetSessionStatusResponse.payment_status:type_name -> graph.substreams.data_service.common.v1.PaymentStatus
+	0,  // 13: graph.substreams.data_service.provider.v1.ProviderSidecarService.ValidatePayment:input_type -> graph.substreams.data_service.provider.v1.ValidatePaymentRequest
+	2,  // 14: graph.substreams.data_service.provider.v1.ProviderSidecarService.ReportUsage:input_type -> graph.substreams.data_service.provider.v1.ReportUsageRequest
+	4,  // 15: graph.substreams.data_service.provider.v1.ProviderSidecarService.EndSession:input_type -> graph.substreams.data_service.provider.v1.EndSessionRequest
+	6,  // 16: graph.substreams.data_service.provider.v1.ProviderSidecarService.GetSessionStatus:input_type -> graph.substreams.data_service.provider.v1.GetSessionStatusRequest
+	1,  // 17: graph.substreams.data_service.provider.v1.ProviderSidecarService.ValidatePayment:output_type -> graph.substreams.data_service.provider.v1.ValidatePaymentResponse
+	3,  // 18: graph.substreams.data_service.provider.v1.ProviderSidecarService.ReportUsage:output_type -> graph.substreams.data_service.provider.v1.ReportUsageResponse
+	5,  // 19: graph.substreams.data_service.provider.v1.ProviderSidecarService.EndSession:output_type -> graph.substreams.data_service.provider.v1.EndSessionResponse
+	7,  // 20: graph.substreams.data_service.provider.v1.ProviderSidecarService.GetSessionStatus:output_type -> graph.substreams.data_service.provider.v1.GetSessionStatusResponse
+	17, // [17:21] is the sub-list for method output_type
+	13, // [13:17] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_provider_v1_provider_proto_init() }

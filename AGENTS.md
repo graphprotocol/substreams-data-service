@@ -35,6 +35,37 @@ go mod tidy
 - Test Status: PASSING (21 tests)
 - Only use latest Golang features instead of older idioms (slices, maps, iter, any, generics, etc.)
 
+## CLI Flag Parsing and Error Handling
+
+When parsing CLI flags that require validation:
+
+- Use `cli.Ensure` for required field presence checks (preferred)
+- Use non-Must parsing functions and handle errors with `cli.NoError`
+- Provide contextual error messages - adjust based on whether field is required or optional
+
+```go
+// Preferred - check required fields with cli.Ensure
+cli.Ensure(signerKeyHex != "", "<signer-key> is required")
+
+// Good - parsing with contextual error for required field
+addr, err := parseAddress(addrHex)
+cli.NoError(err, "invalid <service-provider> address %q, it is required", addrHex)
+
+// Good - parsing with contextual error for optional field
+if configPath != "" {
+    cfg, err := loadConfig(configPath)
+    cli.NoError(err, "unable to load config from %q", configPath)
+}
+
+// Avoid - Must functions panic without context
+addr := MustParseAddress(hex)
+
+// Avoid - returns error without user-friendly context
+if err != nil {
+    return err
+}
+```
+
 ## Notes
 
 - All builds must pass before committing

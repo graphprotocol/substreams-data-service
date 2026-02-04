@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/streamingfast/eth-go"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

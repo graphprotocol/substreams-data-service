@@ -37,7 +37,6 @@ var devenvCmd = Command(
 	`),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.Uint64("chain-id", 1337, "Chain ID for the Anvil network")
-		flags.Uint64("block-time", 1, "Block time in seconds for Anvil")
 	}),
 )
 
@@ -50,7 +49,6 @@ func (consoleReporter) ReportProgress(message string) {
 
 func runDevenv(cmd *cobra.Command, args []string) error {
 	chainID := sflags.MustGetUint64(cmd, "chain-id")
-	blockTime := sflags.MustGetUint64(cmd, "block-time")
 
 	// Validate Docker is accessible
 	fmt.Println("Checking Docker availability...")
@@ -60,13 +58,11 @@ func runDevenv(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nStarting Substreams Data Service development environment...\n")
 	fmt.Printf("  Chain ID: %d\n", chainID)
-	fmt.Printf("  Block time: %d second(s)\n", blockTime)
 	fmt.Println()
 
 	// Build options
 	opts := []devenv.Option{
 		devenv.WithChainID(chainID),
-		devenv.WithBlockTime(blockTime),
 		devenv.WithReporter(consoleReporter{}),
 	}
 

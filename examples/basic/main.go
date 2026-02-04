@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/streamingfast/eth-go"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/streamingfast/eth-go"
 )
 
 func main() {

@@ -177,4 +177,3 @@ func deployContract(ctx context.Context, rpcClient *rpc.Client, key *eth.Private
 	zlog.Debug("contract deployed successfully", zap.Stringer("contract_address", contractAddr), zap.String("tx_hash", txHash))
 	return contractAddr, nil
 }
-
