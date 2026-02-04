@@ -3,6 +3,9 @@ package main
 import (
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/streamingfast/cli"
@@ -10,10 +13,6 @@ import (
 	"github.com/streamingfast/cli/sflags"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
-
-	"github.com/graphprotocol/substreams-data-service/horizon"
-	"github.com/graphprotocol/substreams-data-service/provider/sidecar"
-	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
 var providerLog, _ = logging.PackageLogger("provider", "github.com/graphprotocol/substreams-data-service/cmd/sds@provider")

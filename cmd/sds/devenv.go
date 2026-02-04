@@ -8,12 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	. "github.com/streamingfast/cli"
 	"github.com/streamingfast/cli/sflags"
-
-	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 )
 
 var devenvCmd = Command(

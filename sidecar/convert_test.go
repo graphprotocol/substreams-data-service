@@ -5,11 +5,10 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/streamingfast/eth-go"
-	"github.com/stretchr/testify/assert"
-
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
+	"github.com/streamingfast/eth-go"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestProtoRAVToHorizon(t *testing.T) {

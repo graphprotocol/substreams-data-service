@@ -4,9 +4,8 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	"go.uber.org/zap"
-
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
+	"go.uber.org/zap"
 )
 
 // ReportUsage reports usage sent to a client.

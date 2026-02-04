@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"go.uber.org/zap"
-
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
+	"go.uber.org/zap"
 )
 
 // EndSession ends the current session and reports final usage.

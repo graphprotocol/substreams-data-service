@@ -3,10 +3,9 @@ package sidecar
 import (
 	"bytes"
 
-	"github.com/streamingfast/eth-go"
-
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
+	"github.com/streamingfast/eth-go"
 )
 
 // ProtoRAVToHorizon converts a proto RAV to a horizon RAV

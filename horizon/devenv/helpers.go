@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/eth-go/rpc"
 	"github.com/streamingfast/eth-go/signer/native"
 	"go.uber.org/zap"
-
-	"github.com/graphprotocol/substreams-data-service/horizon"
 )
 
 // waitForReceipt waits for a transaction receipt

@@ -6,10 +6,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"go.uber.org/zap"
-
 	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
+	"go.uber.org/zap"
 )
 
 // ReportUsage reports usage received from the provider.

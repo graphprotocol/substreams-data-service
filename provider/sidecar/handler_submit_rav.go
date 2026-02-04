@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	"go.uber.org/zap"
-
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
+	"go.uber.org/zap"
 )
 
 // SubmitRAV submits a signed RAV to the provider sidecar.

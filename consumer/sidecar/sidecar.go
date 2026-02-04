@@ -6,15 +6,14 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
+	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
+	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/dgrpc/server"
 	"github.com/streamingfast/dgrpc/server/connectrpc"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
-
-	"github.com/graphprotocol/substreams-data-service/horizon"
-	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
-	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
 var _ consumerv1connect.ConsumerSidecarServiceHandler = (*Sidecar)(nil)

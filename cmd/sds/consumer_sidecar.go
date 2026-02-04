@@ -3,6 +3,8 @@ package main
 import (
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/consumer/sidecar"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/streamingfast/cli"
@@ -10,9 +12,6 @@ import (
 	"github.com/streamingfast/cli/sflags"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
-
-	"github.com/graphprotocol/substreams-data-service/consumer/sidecar"
-	"github.com/graphprotocol/substreams-data-service/horizon"
 )
 
 var consumerLog, _ = logging.PackageLogger("consumer", "github.com/graphprotocol/substreams-data-service/cmd/sds@consumer")
