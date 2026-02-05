@@ -112,9 +112,10 @@ Runs alongside the data provider (substreams-tier1) and handles:
 ```bash
 # Using devenv addresses (User1 as accepted signer)
 sds provider sidecar \
-  --service-provider-address 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
+  --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
+  --rpc-endpoint <RPC_URL_FROM_DEVENV> \
   --accepted-signers 0x90353af8461a969e755ef1e1dbadb9415ae5cb6e
 ```
 
