@@ -3,6 +3,7 @@ package main
 import (
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -65,8 +66,9 @@ func runProviderFakeOperator(cmd *cobra.Command, args []string) error {
 	delayBetweenBatches := sflags.MustGetDuration(cmd, "delay-between-batches")
 
 	cli.Ensure(signerKeyHex != "", "<signer-private-key> is required")
-	signerKey, err := eth.NewPrivateKey(signerKeyHex)
-	cli.NoError(err, "invalid <signer-private-key> %q", signerKeyHex)
+	normalizedSignerKeyHex := strings.TrimPrefix(signerKeyHex, "0x")
+	signerKey, err := eth.NewPrivateKey(normalizedSignerKeyHex)
+	cli.NoError(err, "invalid <signer-private-key> %q (expected 32-byte hex, with or without 0x prefix)", signerKeyHex)
 
 	cli.Ensure(collectorHex != "", "<collector-address> is required")
 	collectorAddr, err := eth.NewAddress(collectorHex)
