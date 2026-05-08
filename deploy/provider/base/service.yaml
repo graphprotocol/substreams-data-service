@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sds-provider-payment
+  labels:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: payment-gateway
+    app.kubernetes.io/part-of: substreams-data-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: provider-gateway
+  ports:
+    - name: payment
+      port: 9001
+      targetPort: payment
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sds-provider-plugin
+  labels:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: plugin-gateway
+    app.kubernetes.io/part-of: substreams-data-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: provider-gateway
+  ports:
+    - name: plugin
+      port: 9003
+      targetPort: plugin

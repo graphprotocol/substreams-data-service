@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sds
+  labels:
+    app.kubernetes.io/name: substreams-data-service
+    app.kubernetes.io/part-of: substreams-data-service

@@ -1,0 +1,23 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: sds-postgres
+  labels:
+    app.kubernetes.io/name: sds-postgres
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/part-of: substreams-data-service
+spec:
+  instances: 1
+  bootstrap:
+    initdb:
+      database: sds
+      owner: sds
+  storage:
+    size: 20Gi
+    storageClass: local-nvme-t1-16k-compressed
+  resources:
+    requests:
+      cpu: 2
+      memory: 4Gi
+    limits:
+      memory: 8Gi

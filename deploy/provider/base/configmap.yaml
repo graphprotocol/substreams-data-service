@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sds-provider-config
+  labels:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: provider-gateway
+    app.kubernetes.io/part-of: substreams-data-service
+data:
+  PAYMENT_LISTEN_ADDR: ":9001"
+  PLUGIN_LISTEN_ADDR: ":9003"
+  CHAIN_ID: "421614"
+  SERVICE_PROVIDER_ADDRESS: "0x160Cd2A790d3709175145800573B8947e7b9c9DF"
+  COLLECTOR_ADDRESS: "0x382863e7B662027117449bd2c49285582bbBd21B"
+  ESCROW_ADDRESS: "0xfc7487a37ca8eac2e64cba61277aa109e9b8631e"

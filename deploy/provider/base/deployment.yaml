@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sds-provider
+  labels:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: provider-gateway
+    app.kubernetes.io/part-of: substreams-data-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sds-provider
+      app.kubernetes.io/component: provider-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sds-provider
+        app.kubernetes.io/component: provider-gateway
+        app.kubernetes.io/part-of: substreams-data-service
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: provider
+          image: harbor.mgmt.infra.graphops.xyz/infra/sds-provider:latest
+          imagePullPolicy: Always
+          args:
+            - provider
+            - gateway
+            - --grpc-listen-addr=$(PAYMENT_LISTEN_ADDR)
+            - --plugin-listen-addr=$(PLUGIN_LISTEN_ADDR)
+            - --service-provider=$(SERVICE_PROVIDER_ADDRESS)
+            - --chain-id=$(CHAIN_ID)
+            - --collector-address=$(COLLECTOR_ADDRESS)
+            - --escrow-address=$(ESCROW_ADDRESS)
+            - --rpc-endpoint=$(SDS_RPC_ENDPOINT)
+            - --repository-dsn=$(SDS_REPOSITORY_DSN)
+            - --pricing-config=/etc/sds/pricing/pricing.yaml
+            - --data-plane-endpoint="http://localhost:10016"
+            - --plaintext
+          envFrom:
+            - configMapRef:
+                name: sds-provider-config
+          env:
+            - name: SDS_RPC_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: sds-provider-secret
+                  key: rpc-endpoint
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sds-postgres-app
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sds-postgres-app
+                  key: password
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: sds-postgres-app
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: sds-postgres-app
+                  key: port
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: sds-postgres-app
+                  key: dbname
+            - name: SDS_REPOSITORY_DSN
+              value: "psql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable&connect_timeout=10&application_name=sds-provider"
+          ports:
+            - name: payment
+              containerPort: 9001
+            - name: plugin
+              containerPort: 9003
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: payment
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: payment
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 1
+              memory: 2Gi
+            limits:
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: pricing-config
+              mountPath: /etc/sds/pricing
+              readOnly: true
+      volumes:
+        - name: pricing-config
+          configMap:
+            name: sds-provider-pricing

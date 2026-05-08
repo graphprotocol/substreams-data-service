@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sds-provider-pricing
+  labels:
+    app.kubernetes.io/name: sds-provider
+    app.kubernetes.io/component: provider-gateway
+    app.kubernetes.io/part-of: substreams-data-service
+data:
+  pricing.yaml: |
+    price_per_block: "0.000001"
+    price_per_byte: "0.0000000001"
